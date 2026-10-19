@@ -1,0 +1,266 @@
+import AppKit
+import SwiftUI
+
+@main
+struct WarloggerApp: App {
+    @StateObject private var model = Model()
+
+    var body: some Scene {
+        MenuBarExtra {
+            Panel().environmentObject(model)
+        } label: {
+            Image(systemName: model.live ? "dot.radiowaves.left.and.right" : model.busy ? "arrow.up.circle" : "scroll")
+        }
+        .menuBarExtraStyle(.window)
+    }
+}
+
+final class Cancel: @unchecked Sendable {
+    private let lock = NSLock()
+    private var flag = false
+
+    var value: Bool {
+        get { lock.withLock { flag } }
+        set { lock.withLock { flag = newValue } }
+    }
+}
+
+@MainActor
+final class Model: ObservableObject {
+    private let defaults = UserDefaults.standard
+
+    @Published var gameId: String { didSet { defaults.set(gameId, forKey: "game"); switchGame() } }
+    @Published var email = ""
+    @Published var password = ""
+    @Published var account: Account?
+    @Published var guild = "" { didSet { defaults.set(guild, forKey: "guild") } }
+    @Published var region = "" { didSet { defaults.set(region, forKey: "region") } }
+    @Published var visibility = "" { didSet { defaults.set(visibility, forKey: "visibility") } }
+    @Published var logs: [LogFile] = []
+    @Published var selected: Set<URL> = []
+    @Published var status = ""
+    @Published var progress = 0.0
+    @Published var report = ""
+    @Published var busy = false
+    @Published var live = false
+
+    private let cancel = Cancel()
+
+    var game: Game { games.first { $0.id == gameId } ?? games[0] }
+    var folder: URL? { defaults.url(forKey: "dir.\(game.id)") ?? game.detect() }
+    var savedPassword: Bool { !email.isEmpty && Keychain.load(email) != nil }
+
+    init() {
+        gameId = UserDefaults.standard.string(forKey: "game") ?? "wow"
+        guild = defaults.string(forKey: "guild") ?? ""
+        region = defaults.string(forKey: "region") ?? ""
+        visibility = defaults.string(forKey: "visibility") ?? ""
+        switchGame()
+    }
+
+    func switchGame() {
+        email = defaults.string(forKey: "email.\(game.site)") ?? ""
+        password = ""
+        account = nil
+        refresh()
+        if savedPassword { signIn() } else { status = "Sign in to \(game.host)" }
+    }
+
+    func refresh() {
+        logs = folder.map { game.logs(in: $0) } ?? []
+        selected = Set(logs.prefix(1).map(\.url))
+    }
+
+    func chooseFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.message = "Choose the \(game.name) log folder"
+        NSApp.activate(ignoringOtherApps: true)
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        defaults.set(url, forKey: "dir.\(game.id)")
+        refresh()
+    }
+
+    private func credentials() -> (String, String)? {
+        let typed = password.isEmpty ? Keychain.load(email) : password
+        guard !email.isEmpty, let secret = typed else { return nil }
+        return (email, secret)
+    }
+
+    private func pick(_ list: [Choice], _ wanted: String) -> String {
+        list.first { $0.key == wanted }?.key ?? list.first?.key ?? ""
+    }
+
+    func signIn() {
+        guard let (email, secret) = credentials() else { status = "Enter your email and password"; return }
+        let game = self.game
+        busy = true
+        status = "Signing in to \(game.host)…"
+
+        Task {
+            do {
+                let site = Site(game: game)
+                await site.prepare()
+                let account = try await site.login(email: email, password: secret)
+                Keychain.save(email, secret)
+                defaults.set(email, forKey: "email.\(game.site)")
+                self.account = account
+                guild = pick(account.guilds, guild)
+                region = pick(account.regions, region)
+                visibility = pick(account.visibilities, visibility)
+                password = ""
+                status = "Signed in as \(account.name)"
+            } catch {
+                status = error.localizedDescription
+            }
+            busy = false
+        }
+    }
+
+    private func target(_ account: Account) -> Target {
+        let value = { (list: [Choice], key: String) in list.first { $0.key == key }?.value }
+        let guildValue = value(account.guilds, guild)
+        return Target(region: value(account.regions, region) ?? account.regions.first?.value,
+                      guild: guildValue.flatMap { "\($0)" == "-1" ? nil : $0 },
+                      visibility: value(account.visibilities, visibility) ?? account.visibilities.first?.value)
+    }
+
+    func start(live: Bool) {
+        if self.live { cancel.value = true; status = "Stopping; uploading the last fight…"; return }
+        guard let (email, secret) = credentials() else { status = "Sign in first"; return }
+        let files = logs.filter { selected.contains($0.url) }.map(\.url)
+        guard live || !files.isEmpty else { status = "Select logs to upload"; return }
+        guard let dir = folder else { status = "Choose the log folder first"; return }
+
+        let game = self.game
+        let cancel = self.cancel
+        cancel.value = false
+        busy = !live
+        self.live = live
+        progress = 0
+
+        let model = self
+        Task.detached {
+            let notify: (Event) -> Void = { event in
+                Task { @MainActor in model.apply(event) }
+            }
+
+            let result: Result<String, Error>
+            do {
+                let uploader = try await Uploader(game: game, email: email, password: secret, notify: notify)
+                let target = await model.target(uploader.account)
+                var url = ""
+                if live {
+                    url = try await uploader.follow(dir, target: target, all: false, cancelled: { cancel.value }, notify: notify)
+                } else {
+                    for file in files {
+                        url = try await uploader.upload(file, target: target, cancelled: { cancel.value }, notify: notify)
+                    }
+                }
+                result = .success(url)
+            } catch {
+                result = .failure(error)
+            }
+
+            await model.done(result)
+        }
+    }
+
+    func apply(_ event: Event) {
+        switch event {
+        case .step(let text): status = text
+        case .progress(let p): progress = p
+        case .report(let url): report = url
+        }
+    }
+
+    func done(_ result: Result<String, Error>) {
+        switch result {
+        case .success(let url): status = "Done: \(url)"
+        case .failure(let error): status = error.localizedDescription
+        }
+        busy = false
+        live = false
+    }
+
+    func openReport() {
+        if let url = URL(string: report) { NSWorkspace.shared.open(url) }
+    }
+}
+
+struct Panel: View {
+    @EnvironmentObject var model: Model
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Picker("Game", selection: $model.gameId) {
+                ForEach(games) { Text($0.name).tag($0.id) }
+            }
+            .disabled(model.busy || model.live)
+
+            HStack {
+                TextField("Email", text: $model.email)
+                SecureField(model.savedPassword ? "Saved password" : "Password", text: $model.password)
+                Button("Sign in", action: model.signIn)
+            }
+            .disabled(model.busy || model.live)
+
+            if let account = model.account {
+                HStack {
+                    choice("Guild", account.guilds, $model.guild)
+                    choice("Region", account.regions, $model.region)
+                    choice("Visibility", account.visibilities, $model.visibility)
+                }
+                .labelsHidden()
+                .disabled(model.busy || model.live)
+            }
+
+            Divider()
+
+            HStack {
+                Text(model.folder?.path ?? "No log folder").font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                Spacer()
+                Button("Folder…", action: model.chooseFolder)
+                Button(action: model.refresh) { Image(systemName: "arrow.clockwise") }
+            }
+
+            List(model.logs, selection: $model.selected) { log in
+                HStack {
+                    Text(log.url.lastPathComponent).lineLimit(1).truncationMode(.middle)
+                    Spacer()
+                    Text(ByteCountFormatter.string(fromByteCount: log.size, countStyle: .file)).foregroundStyle(.secondary)
+                    Text(log.modified, style: .relative).foregroundStyle(.secondary).frame(width: 90, alignment: .trailing)
+                }
+                .font(.callout)
+            }
+            .frame(height: 220)
+
+            HStack {
+                Button("Upload selected") { model.start(live: false) }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(model.busy || model.live)
+                Button(model.live ? "Stop live" : "Start live") { model.start(live: true) }
+                    .disabled(model.busy)
+                Spacer()
+                Button("Open report", action: model.openReport).disabled(model.report.isEmpty)
+            }
+
+            if model.busy { ProgressView(value: model.progress) }
+            Text(model.status).font(.caption).foregroundStyle(.secondary).lineLimit(3)
+
+            HStack {
+                Spacer()
+                Button("Quit") { NSApp.terminate(nil) }.buttonStyle(.borderless)
+            }
+        }
+        .padding(16)
+        .frame(width: 520)
+    }
+
+    private func choice(_ title: String, _ list: [Choice], _ binding: Binding<String>) -> some View {
+        Picker(title, selection: binding) {
+            ForEach(list, id: \.key) { Text($0.label).tag($0.key) }
+        }
+    }
+}

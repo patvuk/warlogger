@@ -1,0 +1,84 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo build --release --locked
+      - shell: pwsh
+        run: |
+          $base = "warlogger-${{ github.ref_name }}-windows-x86_64"
+          Copy-Item target/release/warlogger.exe "$base.exe"
+          New-Item -ItemType Directory $base | Out-Null
+          Copy-Item target/release/warlogger.exe, README.md, LICENSE $base
+          Compress-Archive $base "$base.zip"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: windows
+          path: |
+            *.zip
+            *.exe
+
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: mlugg/setup-zig@v2
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-zigbuild
+      - run: cargo zigbuild --release --locked --target x86_64-unknown-linux-gnu.2.17
+      - run: cargo zigbuild --release --locked --features omarchy --target x86_64-unknown-linux-gnu.2.17 --target-dir target-omarchy
+      - run: |
+          name="warlogger-${GITHUB_REF_NAME}-linux-x86_64"
+          mkdir -p "$name"
+          cp target/x86_64-unknown-linux-gnu/release/warlogger README.md LICENSE "$name/"
+          tar czf "$name.tar.gz" "$name"
+
+          omarchy="$name-omarchy"
+          mkdir -p "$omarchy/omarchy"
+          cp target-omarchy/x86_64-unknown-linux-gnu/release/warlogger README.md LICENSE "$omarchy/"
+          cp omarchy/manifest.json omarchy/BarWidget.qml "$omarchy/omarchy/"
+          tar czf "$omarchy.tar.gz" "$omarchy"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: linux
+          path: "*.tar.gz"
+
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: macos/bundle.sh "${GITHUB_REF_NAME#v}"
+      - run: cp macos/.build/Warlogger-macos.zip "warlogger-${GITHUB_REF_NAME}-macos-universal.zip"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: macos
+          path: "*.zip"
+
+  publish:
+    needs: [windows, linux, macos]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          merge-multiple: true
+      - run: sha256sum *.exe *.zip *.tar.gz > SHA256SUMS
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            *.exe
+            *.zip
+            *.tar.gz
+            SHA256SUMS
+          generate_release_notes: true

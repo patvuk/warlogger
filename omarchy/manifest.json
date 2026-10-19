@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "id": "patvuk.warlogger",
+  "name": "Warlogger",
+  "version": "@VERSION@",
+  "author": "patvuk",
+  "license": "MIT",
+  "description": "Upload combat logs to Warcraft Logs, FF Logs and the other RPGLogs sites",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Warlogger",
+    "description": "Upload state, recent logs and live logging",
+    "category": "System",
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {
+      "refreshIntervalSec": 2
+    },
+    "schema": [
+      {
+        "key": "refreshIntervalSec",
+        "type": "integer",
+        "label": "Refresh interval (seconds)",
+        "min": 1,
+        "max": 60,
+        "step": 1,
+        "defaultValue": 2
+      }
+    ]
+  }
+}
