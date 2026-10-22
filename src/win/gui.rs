@@ -51,6 +51,7 @@ const SKIP_WIPES: i32 = 29;
 const SKIP_FAILED: i32 = 30;
 const SKIP_SHORT: i32 = 31;
 const MERGE: i32 = 32;
+const UPDATES: i32 = 33;
 
 const CHECKS: [(i32, &str); 5] = [
     (SKIP_TRASH, "skip.trash"),
@@ -70,8 +71,9 @@ const LAYOUT: &[(i32, &str, &str, u32, [i32; 4])] = &[
         "COMBOBOX",
         "",
         CBS_DROPDOWNLIST as u32 | WS_VSCROLL,
-        [90, 16, 454, 320],
+        [90, 16, 348, 320],
     ),
+    (UPDATES, "BUTTON", "Updates", BS_PUSHBUTTON as u32, [446, 15, 98, 26]),
     (0, "STATIC", "Account", 0, [16, 52, 70, 20]),
     (EMAIL, "EDIT", "", ES_AUTOHSCROLL as u32 | WS_BORDER, [90, 48, 170, 24]),
     (
@@ -178,6 +180,9 @@ const LAYOUT: &[(i32, &str, &str, u32, [i32; 4])] = &[
 ];
 
 enum Msg {
+    Update(crate::update::Release),
+    Updated(Result<PathBuf, String>),
+    Checked(Result<(), String>),
     Account(Account),
     Event(Event),
     Fights(PathBuf, Vec<Fight>),
@@ -393,6 +398,60 @@ impl App {
 
         self.layout();
         self.switch_game();
+
+        self.check_updates(false);
+    }
+
+    fn check_updates(&mut self, manual: bool) {
+        if manual {
+            self.status("Checking for updates…");
+        }
+        let hwnd = self.hwnd as usize;
+        std::thread::spawn(move || match crate::update::check() {
+            Ok(Some(release)) => post(hwnd, Msg::Update(release)),
+            Ok(None) if manual => post(hwnd, Msg::Checked(Ok(()))),
+            Err(e) if manual => post(hwnd, Msg::Checked(Err(e))),
+            _ => {}
+        });
+    }
+
+    fn offer(&mut self, release: crate::update::Release) {
+        if self.job != Job::Idle {
+            return;
+        }
+        let text = format!(
+            "Warlogger {} is available (you have {}).\n\nUpdate and restart now?",
+            release.version,
+            env!("CARGO_PKG_VERSION")
+        );
+        let answer = unsafe {
+            MessageBoxW(
+                self.hwnd,
+                wide(&text).as_ptr(),
+                wide("Warlogger update").as_ptr(),
+                MB_YESNO | MB_ICONINFORMATION,
+            )
+        };
+        if answer != IDYES {
+            return;
+        }
+
+        let hwnd = self.hwnd as usize;
+        self.set_job(Job::Busy);
+        self.status(&format!("Downloading Warlogger {}…", release.version));
+        std::thread::spawn(move || post(hwnd, Msg::Updated(crate::update::install(&release))));
+    }
+
+    fn updated(&mut self, result: Result<PathBuf, String>) {
+        match result.and_then(|exe| std::process::Command::new(exe).spawn().map_err(|e| e.to_string())) {
+            Ok(_) => unsafe {
+                DestroyWindow(self.hwnd);
+            },
+            Err(e) => {
+                self.status(&format!("Update failed: {e}"));
+                self.set_job(Job::Idle);
+            }
+        }
     }
 
     fn switch_game(&mut self) {
@@ -600,6 +659,7 @@ impl App {
         let idle = job == Job::Idle;
         for id in [
             GAME,
+            UPDATES,
             EMAIL,
             PASSWORD,
             SIGN_IN,
@@ -759,6 +819,10 @@ impl App {
 
     fn message(&mut self, msg: Msg) {
         match msg {
+            Msg::Update(release) => self.offer(release),
+            Msg::Updated(result) => self.updated(result),
+            Msg::Checked(Ok(())) => self.status(concat!("Warlogger ", env!("CARGO_PKG_VERSION"), " is up to date")),
+            Msg::Checked(Err(e)) => self.status(&format!("Update check failed: {e}")),
             Msg::Account(account) => self.signed_in(account),
             Msg::Event(Event::Step(text)) => self.status(&text),
             Msg::Event(Event::Progress(p)) => {
@@ -795,6 +859,7 @@ impl App {
             (SIGN_IN, BN_CLICKED) => self.sign_in(),
             (BROWSE, BN_CLICKED) => self.browse(),
             (REFRESH, BN_CLICKED) => self.refresh(),
+            (UPDATES, BN_CLICKED) => self.check_updates(true),
             (FIGHTS, BN_CLICKED) => self.scan(),
             (SPLIT, BN_CLICKED) => self.split(),
             (SKIP_TRASH | SKIP_WIPES | SKIP_FAILED | SKIP_SHORT | MERGE, BN_CLICKED) => self.check(id),

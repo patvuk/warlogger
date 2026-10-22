@@ -19,6 +19,7 @@
 | `fresh` | WoW Anniversary | fresh.warcraftlogs.com | `WoWCombatLog*.txt` |
 | `sod` | WoW Season of Discovery | sod.warcraftlogs.com | `WoWCombatLog*.txt` |
 | `vanilla` | WoW Classic Era | vanilla.warcraftlogs.com | `WoWCombatLog*.txt` |
+| `forever` | WoW Forever | forever.warcraftlogs.com | `WoWCombatLog*.txt` |
 | `titan` | WoW Titan Reforged | titan.warcraftlogs.com | `WoWCombatLog*.txt` |
 | `ff` | Final Fantasy XIV | fflogs.com | `Network_*.log` from ACT or IINACT |
 | `eso` | Elder Scrolls Online | esologs.com | `Encounter.log` |
@@ -78,6 +79,7 @@ warlogger stop
 | `split [latest\|N\|path]...` | splits logs into one file per boss, key, zone or session |
 | `live [--all]` | uploads fights as they happen until stopped; `--all` also includes fights already in the file |
 | `stop` | stops `live` (Linux) |
+| `update` | downloads the newest release from GitHub and replaces the running binary |
 | `set <key> <value>` | saves a default: `game`, `guild`, `region`, `visibility`, `description`, `dir.<game>` |
 
 | Option | |
@@ -97,6 +99,10 @@ warlogger stop
 | `--no-short` | skips fights under 10 seconds, and deletes split pieces under 10 seconds |
 
 `WARLOGGER_PASSWORD` overrides the saved password. The config lives in `~/.config/warlogger/config` on Linux and `%APPDATA%\warlogger\config` on Windows. The macOS app keeps its settings in its user defaults.
+
+## Updates
+
+The Windows and macOS apps check GitHub for a newer release when they start, and again when you press **Updates** (Windows) or **Check for updates** (macOS). They never check in the background. When a newer release exists, the Windows app asks before updating, and the macOS app shows an **Update and restart** button. On the command line, `warlogger update` updates the binary in place.
 
 ## Omarchy
 
@@ -127,7 +133,7 @@ Prior art: [combatlog](https://github.com/thevinter/combatlog), [ACTLogsUploader
 ```sh
 cargo build --release
 cargo build --release --features omarchy
-macos/bundle.sh 0.2.0
+macos/bundle.sh 0.3.0
 ```
 
 ## Disclaimer

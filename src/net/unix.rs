@@ -35,6 +35,12 @@ pub fn send(method: &str, url: &str, headers: &[(&str, &str)], body: Vec<u8>) ->
         .filter_map(|v| v.to_str().ok().map(str::to_owned))
         .collect();
 
+    let location = response
+        .headers()
+        .get("location")
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_owned);
+
     let body = response
         .body_mut()
         .with_config()
@@ -45,6 +51,7 @@ pub fn send(method: &str, url: &str, headers: &[(&str, &str)], body: Vec<u8>) ->
     Ok(Response {
         status: response.status().as_u16(),
         cookies,
+        location,
         body,
     })
 }

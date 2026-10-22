@@ -71,9 +71,9 @@ struct LogFile: Identifiable, Hashable {
     var id: URL { url }
 }
 
-private func wow(_ id: String, _ name: String, _ host: String, _ flavor: String) -> Game {
+private func wow(_ id: String, _ name: String, _ host: String, _ flavors: String...) -> Game {
     Game(id: id, name: name, host: host, prefix: "WoWCombatLog", suffix: ".txt", latin1: false,
-         dirs: ["/Applications/World of Warcraft/\(flavor)/Logs", "~/Applications/World of Warcraft/\(flavor)/Logs"])
+         dirs: flavors.flatMap { ["/Applications/World of Warcraft/\($0)/Logs", "~/Applications/World of Warcraft/\($0)/Logs"] })
 }
 
 let games: [Game] = [
@@ -82,6 +82,7 @@ let games: [Game] = [
     wow("fresh", "WoW Anniversary", "fresh.warcraftlogs.com", "_anniversary_"),
     wow("sod", "WoW Season of Discovery", "sod.warcraftlogs.com", "_classic_era_"),
     wow("vanilla", "WoW Classic Era", "vanilla.warcraftlogs.com", "_classic_era_"),
+    wow("forever", "WoW Forever", "forever.warcraftlogs.com", "_forever_", "_classic_beta_"),
     wow("titan", "WoW Titan Reforged", "titan.warcraftlogs.com", "_classic_titan_"),
     Game(id: "ff", name: "Final Fantasy XIV", host: "www.fflogs.com", prefix: "Network_", suffix: ".log", latin1: false,
          dirs: ["~/Documents/IINACT", "~/Library/Application Support/XIV on Mac/wineprefix/drive_c/users/emet-selch/Documents/IINACT"]),

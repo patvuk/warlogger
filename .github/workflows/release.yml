@@ -44,16 +44,20 @@ jobs:
           mkdir -p "$name"
           cp target/x86_64-unknown-linux-gnu/release/warlogger README.md LICENSE "$name/"
           tar czf "$name.tar.gz" "$name"
+          cp target/x86_64-unknown-linux-gnu/release/warlogger "$name.bin"
 
           omarchy="$name-omarchy"
           mkdir -p "$omarchy/omarchy"
           cp target-omarchy/x86_64-unknown-linux-gnu/release/warlogger README.md LICENSE "$omarchy/"
           cp omarchy/manifest.json omarchy/BarWidget.qml "$omarchy/omarchy/"
           tar czf "$omarchy.tar.gz" "$omarchy"
+          cp target-omarchy/x86_64-unknown-linux-gnu/release/warlogger "$omarchy.bin"
       - uses: actions/upload-artifact@v7
         with:
           name: linux
-          path: "*.tar.gz"
+          path: |
+            *.tar.gz
+            *.bin
 
   macos:
     runs-on: macos-latest
@@ -73,12 +77,16 @@ jobs:
       - uses: actions/download-artifact@v8
         with:
           merge-multiple: true
-      - run: sha256sum *.exe *.zip *.tar.gz > SHA256SUMS
+      - run: |
+          for f in *.bin; do mv "$f" "${f%.bin}"; done
+          sha256sum *.exe *.zip *.tar.gz *-linux-x86_64 *-linux-x86_64-omarchy > SHA256SUMS
       - uses: softprops/action-gh-release@v2
         with:
           files: |
             *.exe
             *.zip
             *.tar.gz
+            *-linux-x86_64
+            *-linux-x86_64-omarchy
             SHA256SUMS
           generate_release_notes: true

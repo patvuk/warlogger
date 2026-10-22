@@ -115,6 +115,9 @@ pub fn send(method: &str, url: &str, headers: &[(&str, &str)], body: Vec<u8>) ->
             cookies.push(cookie);
         }
 
+        let mut index = 0;
+        let location = query(request.0, WINHTTP_QUERY_LOCATION, &mut index);
+
         let mut out = Vec::new();
         loop {
             let mut available = 0u32;
@@ -136,6 +139,7 @@ pub fn send(method: &str, url: &str, headers: &[(&str, &str)], body: Vec<u8>) ->
         Ok(Response {
             status,
             cookies,
+            location,
             body: out,
         })
     }

@@ -45,6 +45,7 @@ final class Model: ObservableObject {
     @Published var skipFailed: Bool { didSet { defaults.set(skipFailed, forKey: "skip.failed"); pickFights() } }
     @Published var skipShort: Bool { didSet { defaults.set(skipShort, forKey: "skip.short"); pickFights() } }
     @Published var merge: Bool { didSet { defaults.set(merge, forKey: "merge") } }
+    @Published var update: Update?
     @Published var status = ""
     @Published var progress = 0.0
     @Published var report = ""
@@ -66,6 +67,7 @@ final class Model: ObservableObject {
         skipShort = saved.bool(forKey: "skip.short")
         merge = saved.bool(forKey: "merge")
         gameId = saved.string(forKey: "game") ?? "wow"
+        Task { update = await Updater.check() }
         guild = defaults.string(forKey: "guild") ?? ""
         region = defaults.string(forKey: "region") ?? ""
         visibility = defaults.string(forKey: "visibility") ?? ""
@@ -277,6 +279,28 @@ final class Model: ObservableObject {
         live = false
     }
 
+    func checkUpdate() {
+        status = "Checking for updates…"
+        Task {
+            update = await Updater.check()
+            if update == nil { status = "Warlogger \(Updater.current) is up to date" }
+        }
+    }
+
+    func installUpdate() {
+        guard let update else { return }
+        busy = true
+        status = "Downloading Warlogger \(update.version)…"
+        Task {
+            do {
+                try await Updater.install(update)
+            } catch {
+                status = "Update failed: \(error.localizedDescription)"
+                busy = false
+            }
+        }
+    }
+
     func openReport() {
         if let url = URL(string: report) { NSWorkspace.shared.open(url) }
     }
@@ -287,6 +311,15 @@ struct Panel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
+            if let update = model.update {
+                HStack {
+                    Text("Warlogger \(update.version) is available").font(.callout)
+                    Spacer()
+                    Button("Update and restart", action: model.installUpdate)
+                        .disabled(model.busy || model.live)
+                }
+            }
+
             Picker("Game", selection: $model.gameId) {
                 ForEach(games) { Text($0.name).tag($0.id) }
             }
@@ -365,6 +398,8 @@ struct Panel: View {
             Text(model.status).font(.caption).foregroundStyle(.secondary).lineLimit(3)
 
             HStack {
+                Button("Check for updates", action: model.checkUpdate).buttonStyle(.borderless)
+                    .disabled(model.busy || model.live)
                 Spacer()
                 Button("Quit") { NSApp.terminate(nil) }.buttonStyle(.borderless)
             }

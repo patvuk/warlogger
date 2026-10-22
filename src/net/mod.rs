@@ -11,5 +11,6 @@ pub use windows::send;
 pub struct Response {
     pub status: u16,
     pub cookies: Vec<String>,
+    pub location: Option<String>,
     pub body: Vec<u8>,
 }

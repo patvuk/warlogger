@@ -13,7 +13,7 @@ pub struct Game {
 }
 
 macro_rules! wow {
-    ($id:literal, $name:literal, $host:literal, $flavor:literal) => {
+    ($id:literal, $name:literal, $host:literal, $($flavor:literal),+) => {
         Game {
             id: $id,
             name: $name,
@@ -21,7 +21,7 @@ macro_rules! wow {
             prefix: "WoWCombatLog",
             suffix: ".txt",
             latin1: false,
-            dirs: &[
+            dirs: &[$(
                 concat!("C:/Program Files (x86)/World of Warcraft/", $flavor, "/Logs"),
                 concat!("C:/Program Files/World of Warcraft/", $flavor, "/Logs"),
                 concat!("/Applications/World of Warcraft/", $flavor, "/Logs"),
@@ -45,7 +45,7 @@ macro_rules! wow {
                     $flavor,
                     "/Logs"
                 ),
-            ],
+            )+],
         }
     };
 }
@@ -86,6 +86,13 @@ pub const GAMES: &[Game] = &[
         "WoW Classic Era",
         "vanilla.warcraftlogs.com",
         "_classic_era_"
+    ),
+    wow!(
+        "forever",
+        "WoW Forever",
+        "forever.warcraftlogs.com",
+        "_forever_",
+        "_classic_beta_"
     ),
     wow!(
         "titan",

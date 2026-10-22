@@ -10,6 +10,7 @@ mod split;
 mod store;
 #[cfg(unix)]
 mod unix;
+mod update;
 mod upload;
 #[cfg(windows)]
 mod win;
@@ -46,11 +47,12 @@ commands:
   split [latest|N|path]...    split logs into one file per boss, key, zone or session
   live [--all]                upload fights as they happen until stopped
   stop                        stop a running `live`
+  update                      install the newest release from GitHub
   set <key> <value>           set a default (game, region, guild, visibility, description, dir.<game>)
   omarchy <install|uninstall> add or remove the Omarchy bar widget
 
 options:
-  -g, --game <id>             wow, classic, fresh, sod, vanilla, titan, ff, eso, swtor, fellowship
+  -g, --game <id>             wow, classic, fresh, sod, vanilla, forever, titan, ff, eso, swtor, fellowship
   -d, --dir <path>            log folder
   -e, --email <email>
   -r, --region <name|id>
@@ -457,6 +459,20 @@ fn say(text: impl std::fmt::Display) -> Result<(), String> {
     Ok(())
 }
 
+fn update() -> Result<(), String> {
+    let Some(release) = update::check()? else {
+        return say(concat!(
+            "warlogger ",
+            env!("CARGO_PKG_VERSION"),
+            " is the newest release"
+        ));
+    };
+
+    eprintln!("downloading warlogger {}", release.version);
+    let exe = update::install(&release)?;
+    say(format!("updated {} to {}", exe.display(), release.version))
+}
+
 fn games() -> Result<(), String> {
     let rows: Vec<_> = GAMES
         .iter()
@@ -466,6 +482,8 @@ fn games() -> Result<(), String> {
 }
 
 fn main() -> ExitCode {
+    #[cfg(windows)]
+    update::cleanup();
     #[cfg(windows)]
     if std::env::args().len() == 1 {
         return win::gui::run();
@@ -488,6 +506,7 @@ fn main() -> ExitCode {
         "split" => split(cfg, args),
         "live" => live(cfg, args),
         "set" => set(cfg, &args),
+        "update" => update(),
         #[cfg(unix)]
         "stop" => unix::stop(),
         #[cfg(all(feature = "omarchy", target_os = "linux"))]
