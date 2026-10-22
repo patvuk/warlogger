@@ -5,10 +5,11 @@ use std::path::PathBuf;
 const LATEST: &str = "https://api.github.com/repos/patvuk/warlogger/releases/latest";
 const HEADERS: [(&str, &str); 2] = [("User-Agent", "warlogger"), ("Accept", "application/vnd.github+json")];
 
-const ASSET: &str = match (cfg!(windows), cfg!(feature = "omarchy")) {
-    (true, _) => "-windows-x86_64.exe",
-    (false, true) => "-linux-x86_64-omarchy",
-    (false, false) => "-linux-x86_64",
+const ASSET: &str = match (cfg!(windows), cfg!(feature = "portable"), cfg!(feature = "omarchy")) {
+    (true, true, _) => "-windows-x86_64-portable.exe",
+    (true, false, _) => "-windows-x86_64-setup.exe",
+    (false, _, true) => "-linux-x86_64-omarchy",
+    (false, _, false) => "-linux-x86_64",
 };
 
 pub struct Release {

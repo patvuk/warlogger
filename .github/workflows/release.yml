@@ -14,19 +14,17 @@ jobs:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo build --release --locked
+      - run: cargo build --release --locked --features portable --target-dir target-portable
       - shell: pwsh
         run: |
           $base = "warlogger-${{ github.ref_name }}-windows-x86_64"
-          Copy-Item target/release/warlogger.exe "$base.exe"
-          New-Item -ItemType Directory $base | Out-Null
-          Copy-Item target/release/warlogger.exe, README.md, LICENSE $base
-          Compress-Archive $base "$base.zip"
+          Copy-Item target/release/warlogger.exe "$base-setup.exe"
+          Copy-Item target-portable/release/warlogger.exe "$base-portable.exe"
+          Copy-Item target-portable/release/warlogger.exe "$base.exe"
       - uses: actions/upload-artifact@v7
         with:
           name: windows
-          path: |
-            *.zip
-            *.exe
+          path: "*.exe"
 
   linux:
     runs-on: ubuntu-latest

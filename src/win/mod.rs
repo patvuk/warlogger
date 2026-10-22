@@ -1,5 +1,7 @@
 pub mod cred;
 pub mod gui;
+#[cfg(not(feature = "portable"))]
+pub mod install;
 
 use std::sync::atomic::Ordering;
 use windows_sys::Win32::Foundation::{HANDLE, TRUE};

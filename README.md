@@ -40,7 +40,8 @@ Each site has a different account. Warlogger keeps one email for each site. It k
 
 Download the file for your platform from [Releases](../../releases).
 
-- **Windows**: Start `warlogger.exe`.
+- **Windows setup**: Start `warlogger-*-setup.exe`. Select the install location and click **Install**. Setup adds a Start menu shortcut and an uninstaller in **Installed apps**.
+- **Windows portable**: Start `warlogger-*-portable.exe`. It does not install.
 - **macOS**: Unzip the file. Move `Warlogger.app` to Applications. The app is not notarized, thus macOS stops it the first time. Open **System Settings → Privacy & Security** and click **Open Anyway**. Or, run `xattr -dr com.apple.quarantine /Applications/Warlogger.app`. The app shows in the menu bar, not in the Dock.
 - **Linux**: Put `warlogger` in a directory on your `PATH`.
 - **Omarchy**: Use the `-omarchy` file. Put `warlogger` in a directory on your `PATH`. Then run `warlogger omarchy install`.

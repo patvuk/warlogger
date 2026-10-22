@@ -57,6 +57,7 @@ warlogger stop
 | `live [--all]` | Uploads fights while they occur, until you stop it. `--all` also uploads the fights that are already in the file. |
 | `stop` | Stops `live` (Linux). |
 | `update` | Downloads the newest release from GitHub and replaces the program. |
+| `uninstall [--quiet]` | Removes the installed app, the Start menu shortcut, the settings and the saved passwords (Windows setup only). `--quiet` does not ask. |
 | `set <key> <value>` | Keeps a default value for `game`, `guild`, `region`, `visibility`, `description` or `dir.<game>`. |
 
 | Option | Function |
@@ -81,9 +82,14 @@ warlogger stop
 
 The Windows app and the macOS app look for a newer release on GitHub at start. To look again, click **Updates** (Windows) or **Check for updates** (macOS). The apps do not look for releases at other times.
 
-- **Windows**: The app asks before it updates. Then it restarts.
+- **Windows**: The app asks before it updates. Then it restarts. The setup version gets the setup file. The portable version gets the portable file.
 - **macOS**: The app shows **Update and restart**. Click it to update.
 - **Command line**: Run `warlogger update`.
+
+## Uninstall
+
+- **Windows setup**: Open **Settings → Apps → Installed apps**. Select **Warlogger** and click **Uninstall**. Or, run `warlogger uninstall`.
+- **Windows portable**: Delete the file. To remove the settings, delete `%APPDATA%\warlogger`.
 
 ## Omarchy
 
@@ -114,7 +120,7 @@ Related projects: [combatlog](https://github.com/thevinter/combatlog), [ACTLogsU
 ```sh
 cargo build --release
 cargo build --release --features omarchy
-macos/bundle.sh 0.3.1
+macos/bundle.sh 0.4.0
 ```
 
 ## Disclaimer

@@ -30,6 +30,24 @@ pub fn save_secret(account: &str, secret: &str) -> Result<(), String> {
     }
 }
 
+#[cfg(not(feature = "portable"))]
+pub fn forget_all() {
+    use windows_sys::Win32::Security::Credentials::{CredDeleteW, CredEnumerateW};
+
+    let filter = wide("warlogger:*");
+    let (mut count, mut list) = (0u32, null_mut());
+
+    unsafe {
+        if CredEnumerateW(filter.as_ptr(), 0, &mut count, &mut list) == 0 {
+            return;
+        }
+        for &cred in std::slice::from_raw_parts(list, count as usize) {
+            CredDeleteW((*cred).TargetName, CRED_TYPE_GENERIC, 0);
+        }
+        CredFree(list.cast());
+    }
+}
+
 pub fn load_secret(account: &str) -> Option<String> {
     let target = target(account);
     let mut cred: *mut CREDENTIALW = null_mut();

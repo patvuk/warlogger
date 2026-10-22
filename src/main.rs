@@ -48,6 +48,7 @@ commands:
   live [--all]                upload fights as they happen until stopped
   stop                        stop a running `live`
   update                      install the newest release from GitHub
+  uninstall [--quiet]         remove the installed app, settings and passwords (Windows setup)
   set <key> <value>           set a default (game, region, guild, visibility, description, dir.<game>)
   omarchy <install|uninstall> add or remove the Omarchy bar widget
 
@@ -486,6 +487,10 @@ fn main() -> ExitCode {
     update::cleanup();
     #[cfg(windows)]
     if std::env::args().len() == 1 {
+        #[cfg(not(feature = "portable"))]
+        if win::install::adopt() {
+            return ExitCode::SUCCESS;
+        }
         return win::gui::run();
     }
     #[cfg(windows)]
@@ -507,6 +512,8 @@ fn main() -> ExitCode {
         "live" => live(cfg, args),
         "set" => set(cfg, &args),
         "update" => update(),
+        #[cfg(all(windows, not(feature = "portable")))]
+        "uninstall" => win::install::uninstall(args.rest.iter().any(|a| a == "--quiet")),
         #[cfg(unix)]
         "stop" => unix::stop(),
         #[cfg(all(feature = "omarchy", target_os = "linux"))]
