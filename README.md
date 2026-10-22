@@ -133,7 +133,7 @@ Prior art: [combatlog](https://github.com/thevinter/combatlog), [ACTLogsUploader
 ```sh
 cargo build --release
 cargo build --release --features omarchy
-macos/bundle.sh 0.3.0
+macos/bundle.sh 0.3.1
 ```
 
 ## Disclaimer
