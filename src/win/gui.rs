@@ -550,9 +550,7 @@ impl App {
         if self.fights.is_some() {
             return self.refresh();
         }
-        let Some((email, password)) = self.credentials() else {
-            return self.status("Sign in first");
-        };
+        let credentials = self.credentials();
         let [path] = self.picked()[..] else {
             return self.status("Select one log to list its fights");
         };
@@ -568,12 +566,16 @@ impl App {
 
         let worker = std::thread::Builder::new().stack_size(32 << 20).spawn(move || {
             let mut notify = |e| post(hwnd, Msg::Event(e));
-            let result = (|| {
-                let mut session = Session::open(game, &email, &password, &mut notify)?;
-                let target = crate::target(&cfg, &Args::default(), &session.account)?;
-                notify(Event::Step("scanning for fights".into()));
-                session.scan(&path, &target.region, &CANCEL, &mut notify)
-            })();
+            notify(Event::Step("scanning for fights".into()));
+            let result = crate::upload::fights(game, &path, &CANCEL, &mut notify).and_then(|offline| match offline {
+                Some(fights) => Ok(fights),
+                None => {
+                    let (email, password) = credentials.ok_or("Sign in first")?;
+                    let mut session = Session::open(game, &email, &password, &mut notify)?;
+                    let target = crate::target(&cfg, &Args::default(), &session.account)?;
+                    session.scan(&path, &target.region, &CANCEL, &mut notify)
+                }
+            });
             match result {
                 Ok(fights) => post(hwnd, Msg::Fights(path, fights)),
                 Err(e) => post(hwnd, Msg::Done(Err(e))),
@@ -766,8 +768,8 @@ impl App {
         let merge = self.checked(MERGE);
         let files: Vec<PathBuf> = match &self.fights {
             Some((path, fights)) => {
-                let ranges = self.picked().into_iter().filter_map(|i| fights.get(i));
-                filter.fights = Some(ranges.map(|f| (f.start, f.end)).collect());
+                let picked = self.picked().into_iter().filter_map(|i| fights.get(i).cloned());
+                filter.fights = Some(picked.collect());
                 match filter.fights.as_ref().is_some_and(|f| !f.is_empty()) {
                     true => vec![path.clone()],
                     false => Vec::new(),

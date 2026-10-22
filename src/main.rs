@@ -5,6 +5,7 @@ mod game;
 mod net;
 #[cfg(all(feature = "omarchy", target_os = "linux"))]
 mod omarchy;
+mod scan;
 mod site;
 mod split;
 mod store;
@@ -364,12 +365,7 @@ fn upload(cfg: Config, args: Args) -> Result<(), String> {
             if let Some(list) = &args.fights {
                 let fights = session.scan(&files[0], &target.region, &CANCEL, &mut notify)?;
                 let picked = numbers(list, fights.len())?;
-                filter.fights = Some(
-                    picked
-                        .iter()
-                        .map(|&i| (fights[i - 1].start, fights[i - 1].end))
-                        .collect(),
-                );
+                filter.fights = Some(picked.iter().map(|&i| fights[i - 1].clone()).collect());
             }
 
             let groups: Vec<Vec<PathBuf>> = match args.merge {
@@ -389,19 +385,21 @@ fn upload(cfg: Config, args: Args) -> Result<(), String> {
 fn fights(cfg: Config, args: Args) -> Result<(), String> {
     let game = game(&cfg, &args)?;
     let file = selected(&cfg, &args, game)?.remove(0);
-    let (email, password) = credentials(&cfg, &args, game)?;
 
     big_stack(move || {
         let mut printer = Printer::new();
         let mut notify = |e| printer.event(e);
-        let mut session = Session::open(game, &email, &password, &mut notify)?;
-        let target = target(&cfg, &args, &session.account)?;
+        let fights = match upload::fights(game, &file, &CANCEL, &mut notify)? {
+            Some(fights) => fights,
+            None => {
+                let (email, password) = credentials(&cfg, &args, game)?;
+                let mut session = Session::open(game, &email, &password, &mut notify)?;
+                let target = target(&cfg, &args, &session.account)?;
+                session.scan(&file, &target.region, &CANCEL, &mut notify)?
+            }
+        };
 
-        for (i, fight) in session
-            .scan(&file, &target.region, &CANCEL, &mut notify)?
-            .iter()
-            .enumerate()
-        {
+        for (i, fight) in fights.iter().enumerate() {
             let mark = if args.filter.keep(game, fight) { ' ' } else { '-' };
             println!("{:>3}{mark} {}", i + 1, fight.label(game));
         }

@@ -1,6 +1,6 @@
 [package]
 name = "warlogger"
-version = "0.4.2"
+version = "0.5.0"
 edition = "2024"
 rust-version = "1.85"
 description = "Uploads combat logs to Warcraft Logs, FF Logs and the other RPGLogs sites"
@@ -12,6 +12,7 @@ omarchy = []
 portable = []
 
 [dependencies]
+memchr = "2"
 miniz_oxide = "0.9"
 rquickjs = { version = "0.14", default-features = false, features = ["std"] }
 serde_json = "1"

@@ -28,6 +28,13 @@ pub struct Target {
     pub description: String,
 }
 
+#[derive(Clone, Debug, Default)]
+pub struct Stamp {
+    pub text: String,
+    pub year: i64,
+    pub shift: i64,
+}
+
 #[derive(Clone, Debug)]
 pub struct Fight {
     pub name: String,
@@ -37,6 +44,7 @@ pub struct Fight {
     pub difficulty: i64,
     pub success: bool,
     pub pulls: i64,
+    pub stamps: Option<(Stamp, Stamp)>,
 }
 
 #[derive(Clone, Default)]
@@ -45,7 +53,7 @@ pub struct Filter {
     pub wipes: bool,
     pub failed: bool,
     pub short: bool,
-    pub fights: Option<Vec<(i64, i64)>>,
+    pub fights: Option<Vec<Fight>>,
 }
 
 impl Fight {
@@ -164,6 +172,72 @@ impl Reader {
     }
 }
 
+fn parser_scan(
+    engine: &Engine,
+    game: &Game,
+    path: &Path,
+    region: &Value,
+    cancel: &AtomicBool,
+    notify: &mut dyn FnMut(Event),
+) -> Result<Vec<Fight>, String> {
+    engine.reset()?;
+    if let Some(date) = game.start_date(path) {
+        engine.start_date(&date)?;
+    }
+
+    let mut reader = Reader::open(path, game.latin1)?;
+    let file = path.to_string_lossy().into_owned();
+    let size = reader.len().max(1);
+    let scan = Scan {
+        raids: &[],
+        scanning: true,
+    };
+
+    while !cancel.load(Ordering::Relaxed) {
+        let part = reader.next(true)?;
+        engine.parse(part.text, region, &file, part.span, scan)?;
+        notify(Event::Progress(reader.pos as f32 / size as f32));
+        if part.eof {
+            break;
+        }
+    }
+
+    let fights = engine.scanned();
+    engine.reset()?;
+
+    let list: Vec<Value> = serde_json::from_str(&fights?).map_err(|e| e.to_string())?;
+    let num = |v: &Value, k: &str| v[k].as_f64().unwrap_or(0.0) as i64;
+    Ok(list
+        .iter()
+        .map(|v| Fight {
+            name: v["name"].as_str().unwrap_or("Unknown").to_owned(),
+            start: num(v, "start"),
+            end: num(v, "end"),
+            boss: num(v, "boss"),
+            difficulty: num(v, "difficulty"),
+            success: v["success"].as_bool().unwrap_or(false),
+            pulls: num(v, "pulls"),
+            stamps: None,
+        })
+        .collect())
+}
+
+pub fn fights(
+    game: &'static Game,
+    path: &Path,
+    cancel: &AtomicBool,
+    notify: &mut dyn FnMut(Event),
+) -> Result<Option<Vec<Fight>>, String> {
+    if crate::scan::supported(game) {
+        return crate::scan::scan(path, cancel, notify).map(Some);
+    }
+    let Some(scripts) = crate::store::load_parser(game.host) else {
+        return Ok(None);
+    };
+    let engine = Engine::load(scripts)?;
+    parser_scan(&engine, game, path, &Value::from(0), cancel, notify).map(Some)
+}
+
 impl Session {
     pub fn open(
         game: &'static Game,
@@ -176,7 +250,9 @@ impl Session {
         let account = site.login(email, password)?;
 
         notify(Event::Step("loading the site's parser".into()));
-        let engine = Engine::load(site.parser()?)?;
+        let scripts = site.parser()?;
+        crate::store::save_parser(game.host, &scripts);
+        let engine = Engine::load(scripts)?;
         Ok(Self {
             game,
             site,
@@ -280,15 +356,12 @@ impl Session {
         let mut plan = Vec::new();
         for path in files {
             let raids = match (&filter.fights, filter.scans()) {
-                (Some(raids), _) => raids.clone(),
+                (Some(fights), _) => self.ranges(fights)?,
                 (None, true) => {
                     notify(Event::Step(format!("scanning {}", file_name(&path))));
                     let fights = self.scan(&path, &target.region, cancel, notify)?;
-                    let kept: Vec<_> = fights
-                        .iter()
-                        .filter(|f| filter.keep(self.game, f))
-                        .map(|f| (f.start, f.end))
-                        .collect();
+                    let kept: Vec<_> = fights.into_iter().filter(|f| filter.keep(self.game, f)).collect();
+                    let kept = self.ranges(&kept)?;
                     if kept.is_empty() {
                         notify(Event::Step(format!(
                             "{}: every fight was filtered out",
@@ -365,6 +438,26 @@ impl Session {
         Ok(fights)
     }
 
+    fn ranges(&self, fights: &[Fight]) -> Result<Vec<(i64, i64)>, String> {
+        let stamps: Vec<_> = fights
+            .iter()
+            .filter_map(|f| f.stamps.as_ref())
+            .flat_map(|(a, b)| [(a.text.as_str(), a.year), (b.text.as_str(), b.year)])
+            .collect();
+        let mut times = self.engine.stamps(&stamps)?.into_iter();
+        let shifts = fights.iter().filter_map(|f| f.stamps.as_ref());
+        let mut shifts = shifts.flat_map(|(a, b)| [a.shift, b.shift]);
+        let mut at = || Ok::<_, String>(times.next().ok_or("missing timestamp")? + shifts.next().unwrap_or(0));
+
+        fights
+            .iter()
+            .map(|f| match f.stamps {
+                Some(_) => Ok((at()?, at()?)),
+                None => Ok((f.start, f.end)),
+            })
+            .collect()
+    }
+
     pub fn scan(
         &mut self,
         path: &Path,
@@ -372,45 +465,10 @@ impl Session {
         cancel: &AtomicBool,
         notify: &mut dyn FnMut(Event),
     ) -> Result<Vec<Fight>, String> {
-        self.engine.reset()?;
-        if let Some(date) = self.game.start_date(path) {
-            self.engine.start_date(&date)?;
+        match crate::scan::supported(self.game) {
+            true => crate::scan::scan(path, cancel, notify),
+            false => parser_scan(&self.engine, self.game, path, region, cancel, notify),
         }
-
-        let mut reader = Reader::open(path, self.game.latin1)?;
-        let file = path.to_string_lossy().into_owned();
-        let size = reader.len().max(1);
-        let scan = Scan {
-            raids: &[],
-            scanning: true,
-        };
-
-        while !cancel.load(Ordering::Relaxed) {
-            let part = reader.next(true)?;
-            self.engine.parse(part.text, region, &file, part.span, scan)?;
-            notify(Event::Progress(reader.pos as f32 / size as f32));
-            if part.eof {
-                break;
-            }
-        }
-
-        let fights = self.engine.scanned();
-        self.engine.reset()?;
-
-        let list: Vec<Value> = serde_json::from_str(&fights?).map_err(|e| e.to_string())?;
-        let num = |v: &Value, k: &str| v[k].as_f64().unwrap_or(0.0) as i64;
-        Ok(list
-            .iter()
-            .map(|v| Fight {
-                name: v["name"].as_str().unwrap_or("Unknown").to_owned(),
-                start: num(v, "start"),
-                end: num(v, "end"),
-                boss: num(v, "boss"),
-                difficulty: num(v, "difficulty"),
-                success: v["success"].as_bool().unwrap_or(false),
-                pulls: num(v, "pulls"),
-            })
-            .collect())
     }
 
     pub fn live(

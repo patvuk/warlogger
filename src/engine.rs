@@ -171,6 +171,19 @@ impl Engine {
         self.eval("__scanned()")
     }
 
+    pub fn stamps(&self, list: &[(&str, i64)]) -> Result<Vec<i64>, String> {
+        let input = serde_json::to_string(list).map_err(|e| e.to_string())?;
+        let output: String = self.eval(&format!("__stamps({input})"))?;
+        let times: Vec<Option<f64>> = serde_json::from_str(&output).map_err(|e| e.to_string())?;
+        times
+            .into_iter()
+            .map(|t| {
+                t.map(|t| t as i64)
+                    .ok_or_else(|| "the parser cannot read a log timestamp".to_owned())
+            })
+            .collect()
+    }
+
     pub fn fights_text(&self) -> Result<String, String> {
         self.eval("__fightsText()")
     }

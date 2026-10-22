@@ -361,9 +361,10 @@ checksum = "b8c0a043c9540bae7c578c88f91dda8bd82e59ae27c21baca69c8b191aaf5a6e"
 
 [[package]]
 name = "warlogger"
-version = "0.4.2"
+version = "0.5.0"
 dependencies = [
  "libc",
+ "memchr",
  "miniz_oxide",
  "rquickjs",
  "serde_json",

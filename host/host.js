@@ -56,6 +56,40 @@ window.sessionStorage = window.localStorage;
 window.fetch = function () { return Promise.reject(new Error("offline")); };
 window.console = window.console || { log: function () {}, warn: function () {}, error: function () {}, info: function () {}, debug: function () {} };
 
+(function () {
+  var Native = Date;
+  var stamp = /^(\d{1,2})\/(\d{1,2})\/(\d{4}) (\d{1,2}):(\d{2}):(\d{2})(?:\.(\d{1,3}))?([+-])(\d{1,2})(?::?(\d{2}))?$/;
+
+  function parse(text) {
+    var m = typeof text === "string" && stamp.exec(text);
+    if (!m) return null;
+    var zone = (+m[9] * 60 + +(m[10] || 0)) * (m[8] === "-" ? -1 : 1);
+    return Native.UTC(+m[3], m[1] - 1, +m[2], +m[4], +m[5], +m[6], +((m[7] || "0") + "00").slice(0, 3)) - zone * 60000;
+  }
+
+  function Patched(a, b, c, d, e, f, g) {
+    if (!(this instanceof Patched)) return Native();
+    var time = arguments.length === 1 ? parse(a) : null;
+    if (time !== null) return new Native(time);
+    switch (arguments.length) {
+      case 0: return new Native();
+      case 1: return new Native(a);
+      case 2: return new Native(a, b);
+      case 3: return new Native(a, b, c);
+      case 4: return new Native(a, b, c, d);
+      case 5: return new Native(a, b, c, d, e);
+      case 6: return new Native(a, b, c, d, e, f);
+      default: return new Native(a, b, c, d, e, f, g);
+    }
+  }
+
+  Patched.prototype = Native.prototype;
+  Patched.UTC = Native.UTC;
+  Patched.now = Native.now;
+  Patched.parse = function (text) { var time = parse(text); return time !== null ? time : Native.parse(text); };
+  window.Date = Patched;
+})();
+
 if (typeof URLSearchParams === "undefined") {
   window.URLSearchParams = function (init) {
     var map = {};
@@ -153,6 +187,22 @@ function __players() {
 
 function __scanned() {
   return JSON.stringify(Array.prototype.slice.call(__last["collect-scanned-raids-completed"]));
+}
+
+function __stamp(text, year) {
+  var cut = text.indexOf(" "), date = text.substring(0, cut), slash = date.indexOf("/");
+  if (slash >= 0 && date.indexOf("/", slash + 1) >= 0) {
+    var parts = text.split("."), zone = parts[1].slice(3);
+    if (zone.length > 0 && zone[0] !== "-" && zone[0] !== "+") zone = "+" + zone;
+    return new Date(parts[0] + "." + parts[1].slice(0, 3) + zone).getTime();
+  }
+  var clock = text.substring(cut + 1).split("."), d = new Date(date + "/" + year + " " + clock[0]);
+  d.setMilliseconds(clock[1]);
+  return d.getTime();
+}
+
+function __stamps(list) {
+  return JSON.stringify(list.map(function (s) { return __stamp(s[0], s[1]); }));
 }
 
 function __release() {

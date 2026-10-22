@@ -52,7 +52,7 @@ warlogger stop
 | `login` | Signs in and keeps the account for the site. |
 | `logs` | Shows the log files of the game, newest first, with their numbers. |
 | `upload [latest\|N\|path]...` | Uploads logs by number, by path, or the newest log. |
-| `fights [latest\|N\|path]` | Shows the fights in a log with their numbers. A `-` marks a skipped fight. |
+| `fights [latest\|N\|path]` | Shows the fights in a log with their numbers. A `-` marks a skipped fight. For World of Warcraft logs, it does not connect to the site. |
 | `split [latest\|N\|path]...` | Divides logs into one file for each boss, key, zone or session. |
 | `live [--all]` | Uploads fights while they occur, until you stop it. `--all` also uploads the fights that are already in the file. |
 | `stop` | Stops `live` (Linux). |
@@ -76,7 +76,7 @@ warlogger stop
 | `--no-failed` | Does not upload Mythic+ keys that are not timed or that are abandoned. |
 | `--no-short` | Does not upload fights of less than 10 seconds. Split deletes parts of less than 10 seconds. |
 
-`WARLOGGER_PASSWORD` replaces the saved password. The configuration file is `~/.config/warlogger/config` on Linux and `%APPDATA%\warlogger\config` on Windows. The macOS app keeps its settings in its user defaults.
+`WARLOGGER_PASSWORD` replaces the saved password. `WARLOGGER_PARSER_SCAN=1` makes the Windows and Linux versions use the parser of the site to find fights in World of Warcraft logs. The configuration file is `~/.config/warlogger/config` on Linux and `%APPDATA%\warlogger\config` on Windows. The macOS app keeps its settings in its user defaults.
 
 ## Updates
 
@@ -111,6 +111,10 @@ Warlogger uses the same `/desktop-client` endpoints as the official uploader.
 4. For each group of completed fights, it compresses the master table and the events. It uploads them as a report segment. Then it releases the memory.
 5. At the end, it closes the report.
 
+On Windows and Linux, Warlogger finds the fights in World of Warcraft logs with its own Rust code. This code uses the same rules as the parser of the site, but it does not connect to the site. Before an upload of selected fights, the JavaScript engine converts the start and end times of the fights, so that the parser gets the same time ranges.
+
+For the other games, Warlogger uses the parser of the site to find fights. It keeps the last parser of each site in the settings directory, one file for each site. Thus it can find fights without a connection. Uninstall removes this file.
+
 Only one part of the log and one segment are in memory at a time. In a test, a 40 MB log uploaded in 16 seconds with a maximum of 40 MB of memory.
 
 Related projects: [combatlog](https://github.com/thevinter/combatlog), [ACTLogsUploader](https://github.com/zhui-zi/ACTLogsUploader) and [FFLogsUploader](https://github.com/Robert5204/FFLogsUploader).
@@ -120,7 +124,7 @@ Related projects: [combatlog](https://github.com/thevinter/combatlog), [ACTLogsU
 ```sh
 cargo build --release
 cargo build --release --features omarchy
-macos/bundle.sh 0.4.2
+macos/bundle.sh 0.5.0
 ```
 
 ## Disclaimer

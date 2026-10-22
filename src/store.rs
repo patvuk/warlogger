@@ -18,6 +18,20 @@ pub fn dir() -> PathBuf {
     base.unwrap_or_else(std::env::temp_dir).join(SERVICE)
 }
 
+fn parser_path(host: &str) -> PathBuf {
+    dir().join(format!("parser-{host}.json"))
+}
+
+pub fn save_parser(host: &str, scripts: &[String]) {
+    if let Ok(text) = serde_json::to_string(scripts) {
+        let _ = std::fs::create_dir_all(dir()).and_then(|()| std::fs::write(parser_path(host), text));
+    }
+}
+
+pub fn load_parser(host: &str) -> Option<Vec<String>> {
+    serde_json::from_slice(&std::fs::read(parser_path(host)).ok()?).ok()
+}
+
 impl Config {
     pub fn path() -> PathBuf {
         dir().join("config")
