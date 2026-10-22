@@ -2,7 +2,7 @@ use super::wide;
 use crate::game::{GAMES, Game};
 use crate::site::{Account, Choice, Site};
 use crate::store::{self, Config};
-use crate::upload::{Event, Session};
+use crate::upload::{Event, Fight, Filter, Session};
 use crate::{Args, CANCEL};
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -44,9 +44,24 @@ const LIVE: i32 = 22;
 const REPORT: i32 = 23;
 const PROGRESS: i32 = 24;
 const STATUS: i32 = 25;
+const FIGHTS: i32 = 26;
+const SPLIT: i32 = 27;
+const SKIP_TRASH: i32 = 28;
+const SKIP_WIPES: i32 = 29;
+const SKIP_FAILED: i32 = 30;
+const SKIP_SHORT: i32 = 31;
+const MERGE: i32 = 32;
+
+const CHECKS: [(i32, &str); 5] = [
+    (SKIP_TRASH, "skip.trash"),
+    (SKIP_WIPES, "skip.wipes"),
+    (SKIP_FAILED, "skip.failed"),
+    (SKIP_SHORT, "skip.short"),
+    (MERGE, "merge"),
+];
 
 const WIDTH: i32 = 560;
-const HEIGHT: i32 = 540;
+const HEIGHT: i32 = 560;
 
 const LAYOUT: &[(i32, &str, &str, u32, [i32; 4])] = &[
     (0, "STATIC", "Game", 0, [16, 20, 70, 20]),
@@ -103,31 +118,70 @@ const LAYOUT: &[(i32, &str, &str, u32, [i32; 4])] = &[
         "LISTBOX",
         "",
         LBS_EXTENDEDSEL as u32 | LBS_NOTIFY as u32 | LBS_NOINTEGRALHEIGHT as u32 | WS_VSCROLL | WS_BORDER,
-        [16, 152, 528, 260],
+        [16, 152, 528, 250],
     ),
-    (REFRESH, "BUTTON", "Refresh", BS_PUSHBUTTON as u32, [16, 422, 100, 28]),
+    (
+        SKIP_TRASH,
+        "BUTTON",
+        "Skip trash",
+        BS_AUTOCHECKBOX as u32,
+        [16, 410, 96, 22],
+    ),
+    (
+        SKIP_WIPES,
+        "BUTTON",
+        "Skip wipes",
+        BS_AUTOCHECKBOX as u32,
+        [116, 410, 96, 22],
+    ),
+    (
+        SKIP_FAILED,
+        "BUTTON",
+        "Skip failed keys",
+        BS_AUTOCHECKBOX as u32,
+        [216, 410, 124, 22],
+    ),
+    (
+        SKIP_SHORT,
+        "BUTTON",
+        "Skip short",
+        BS_AUTOCHECKBOX as u32,
+        [344, 410, 90, 22],
+    ),
+    (
+        MERGE,
+        "BUTTON",
+        "Merge selected",
+        BS_AUTOCHECKBOX as u32,
+        [438, 410, 106, 22],
+    ),
+    (REFRESH, "BUTTON", "Refresh", BS_PUSHBUTTON as u32, [16, 440, 72, 28]),
+    (FIGHTS, "BUTTON", "Fights", BS_PUSHBUTTON as u32, [96, 440, 72, 28]),
+    (SPLIT, "BUTTON", "Split", BS_PUSHBUTTON as u32, [176, 440, 64, 28]),
     (
         UPLOAD,
         "BUTTON",
         "Upload selected",
         BS_DEFPUSHBUTTON as u32,
-        [124, 422, 140, 28],
+        [248, 440, 112, 28],
     ),
-    (LIVE, "BUTTON", "Start live", BS_PUSHBUTTON as u32, [272, 422, 140, 28]),
+    (LIVE, "BUTTON", "Start live", BS_PUSHBUTTON as u32, [368, 440, 84, 28]),
     (
         REPORT,
         "BUTTON",
         "Open report",
         BS_PUSHBUTTON as u32,
-        [420, 422, 124, 28],
+        [460, 440, 84, 28],
     ),
-    (PROGRESS, "", "", 0, [16, 462, 528, 14]),
-    (STATUS, "STATIC", "", 0, [16, 486, 528, 40]),
+    (PROGRESS, "", "", 0, [16, 480, 528, 14]),
+    (STATUS, "STATIC", "", 0, [16, 502, 528, 52]),
 ];
 
 enum Msg {
     Account(Account),
     Event(Event),
+    Fights(PathBuf, Vec<Fight>),
+    Split(Result<String, String>),
     Done(Result<String, String>),
 }
 
@@ -144,6 +198,7 @@ struct App {
     cfg: Config,
     account: Option<Account>,
     logs: Vec<PathBuf>,
+    fights: Option<(PathBuf, Vec<Fight>)>,
     report: String,
     job: Job,
 }
@@ -210,6 +265,28 @@ impl App {
             .get(&format!("dir.{}", game.id))
             .map(PathBuf::from)
             .or_else(|| game.detect())
+    }
+
+    fn checked(&self, id: i32) -> bool {
+        send(item(self.hwnd, id), BM_GETCHECK, 0, 0) == 1
+    }
+
+    fn filter(&self) -> Filter {
+        Filter {
+            trash: self.checked(SKIP_TRASH),
+            wipes: self.checked(SKIP_WIPES),
+            failed: self.checked(SKIP_FAILED),
+            short: self.checked(SKIP_SHORT),
+            fights: None,
+        }
+    }
+
+    fn picked(&self) -> Vec<usize> {
+        let list = item(self.hwnd, LOGS);
+        let count = send(list, LB_GETSELCOUNT, 0, 0).max(0) as usize;
+        let mut picked = vec![0i32; count];
+        send(list, LB_GETSELITEMS, count, picked.as_mut_ptr() as isize);
+        picked.into_iter().map(|i| i as usize).collect()
     }
 
     fn status(&self, text: &str) {
@@ -304,6 +381,10 @@ impl App {
             wide("Email").as_ptr() as isize,
         );
         send(item(self.hwnd, PROGRESS), PBM_SETRANGE32, 0, 1000);
+        for (id, key) in CHECKS {
+            let on = self.cfg.get(key) == Some("1");
+            send(item(self.hwnd, id), BM_SETCHECK, on as usize, 0);
+        }
         fill(
             item(self.hwnd, GAME),
             GAMES.iter().map(|g| format!("{} — {}", g.name, g.host)),
@@ -346,6 +427,8 @@ impl App {
         let list = item(self.hwnd, LOGS);
         send(list, LB_RESETCONTENT, 0, 0);
         self.logs.clear();
+        self.fights = None;
+        set_text(item(self.hwnd, FIGHTS), "Fights");
 
         let Some(dir) = self.dir() else {
             set_text(item(self.hwnd, FOLDER), "");
@@ -366,6 +449,111 @@ impl App {
         if !self.logs.is_empty() {
             send(list, LB_SETSEL, 1, 0);
         }
+    }
+
+    fn select_fights(&self) {
+        let Some((_, fights)) = &self.fights else { return };
+        let filter = self.filter();
+        for (i, fight) in fights.iter().enumerate() {
+            send(
+                item(self.hwnd, LOGS),
+                LB_SETSEL,
+                filter.keep(self.game(), fight) as usize,
+                i as isize,
+            );
+        }
+    }
+
+    fn show_fights(&mut self, path: PathBuf, fights: Vec<Fight>) {
+        let list = item(self.hwnd, LOGS);
+        send(list, LB_RESETCONTENT, 0, 0);
+        for fight in &fights {
+            send(list, LB_ADDSTRING, 0, wide(&fight.label(self.game())).as_ptr() as isize);
+        }
+
+        let name = path.file_name().unwrap_or_default().to_string_lossy().into_owned();
+        self.status(&format!("{} fights in {name}; pick the ones to upload", fights.len()));
+        set_text(item(self.hwnd, FIGHTS), "Logs");
+        self.fights = Some((path, fights));
+        self.select_fights();
+        self.set_job(Job::Idle);
+    }
+
+    fn check(&mut self, id: i32) {
+        if let Some((_, key)) = CHECKS.iter().find(|(c, _)| *c == id) {
+            self.cfg.set(key, if self.checked(id) { "1" } else { "0" });
+            self.save();
+        }
+        self.select_fights();
+    }
+
+    fn scan(&mut self) {
+        if self.fights.is_some() {
+            return self.refresh();
+        }
+        let Some((email, password)) = self.credentials() else {
+            return self.status("Sign in first");
+        };
+        let [path] = self.picked()[..] else {
+            return self.status("Select one log to list its fights");
+        };
+        let Some(path) = self.logs.get(path).cloned() else {
+            return;
+        };
+
+        let game = self.game();
+        let hwnd = self.hwnd as usize;
+        let cfg = Config::load();
+        CANCEL.store(false, Ordering::Relaxed);
+        self.set_job(Job::Busy);
+
+        let worker = std::thread::Builder::new().stack_size(32 << 20).spawn(move || {
+            let mut notify = |e| post(hwnd, Msg::Event(e));
+            let result = (|| {
+                let mut session = Session::open(game, &email, &password, &mut notify)?;
+                let target = crate::target(&cfg, &Args::default(), &session.account)?;
+                notify(Event::Step("scanning for fights".into()));
+                session.scan(&path, &target.region, &CANCEL, &mut notify)
+            })();
+            match result {
+                Ok(fights) => post(hwnd, Msg::Fights(path, fights)),
+                Err(e) => post(hwnd, Msg::Done(Err(e))),
+            }
+        });
+
+        if let Err(e) = worker {
+            self.status(&e.to_string());
+            self.set_job(Job::Idle);
+        }
+    }
+
+    fn split(&mut self) {
+        if self.fights.is_some() {
+            return self.status("Press Logs to go back to the log list first");
+        }
+        let files: Vec<PathBuf> = self
+            .picked()
+            .iter()
+            .filter_map(|&i| self.logs.get(i).cloned())
+            .collect();
+        if files.is_empty() {
+            return self.status("Select one or more logs to split");
+        }
+
+        let game = self.game();
+        let short = self.checked(SKIP_SHORT);
+        let hwnd = self.hwnd as usize;
+        CANCEL.store(false, Ordering::Relaxed);
+        self.set_job(Job::Busy);
+        self.status("Splitting…");
+
+        std::thread::spawn(move || {
+            let mut notify = |e| post(hwnd, Msg::Event(e));
+            let result = files.iter().try_fold(0, |n, f| {
+                crate::split::split(game, f, short, &CANCEL, &mut notify).map(|p| n + p.len())
+            });
+            post(hwnd, Msg::Split(result.map(|n| format!("Split into {n} logs"))));
+        });
     }
 
     fn browse(&mut self) {
@@ -411,7 +599,23 @@ impl App {
     fn set_job(&mut self, job: Job) {
         let idle = job == Job::Idle;
         for id in [
-            GAME, EMAIL, PASSWORD, SIGN_IN, GUILD, REGION, VISIBILITY, BROWSE, REFRESH, UPLOAD,
+            GAME,
+            EMAIL,
+            PASSWORD,
+            SIGN_IN,
+            GUILD,
+            REGION,
+            VISIBILITY,
+            BROWSE,
+            REFRESH,
+            UPLOAD,
+            FIGHTS,
+            SPLIT,
+            SKIP_TRASH,
+            SKIP_WIPES,
+            SKIP_FAILED,
+            SKIP_SHORT,
+            MERGE,
         ] {
             unsafe { EnableWindow(item(self.hwnd, id), idle as i32) };
         }
@@ -498,15 +702,22 @@ impl App {
             return;
         };
 
-        let files: Vec<PathBuf> = {
-            let list = item(self.hwnd, LOGS);
-            let count = send(list, LB_GETSELCOUNT, 0, 0).max(0) as usize;
-            let mut picked = vec![0i32; count];
-            send(list, LB_GETSELITEMS, count, picked.as_mut_ptr() as isize);
-            picked
+        let mut filter = self.filter();
+        let merge = self.checked(MERGE);
+        let files: Vec<PathBuf> = match &self.fights {
+            Some((path, fights)) => {
+                let ranges = self.picked().into_iter().filter_map(|i| fights.get(i));
+                filter.fights = Some(ranges.map(|f| (f.start, f.end)).collect());
+                match filter.fights.as_ref().is_some_and(|f| !f.is_empty()) {
+                    true => vec![path.clone()],
+                    false => Vec::new(),
+                }
+            }
+            None => self
+                .picked()
                 .iter()
-                .filter_map(|&i| self.logs.get(i as usize).cloned())
-                .collect()
+                .filter_map(|&i| self.logs.get(i).cloned())
+                .collect(),
         };
 
         let dir = self.dir();
@@ -531,9 +742,10 @@ impl App {
 
                 match (live, dir) {
                     (true, Some(dir)) => session.live(&dir, &target, false, &CANCEL, &mut notify),
-                    _ => files
-                        .iter()
-                        .try_fold(String::new(), |_, f| session.upload(f, &target, &CANCEL, &mut notify)),
+                    _ if merge => session.upload(&files, &target, &filter, &CANCEL, &mut notify),
+                    _ => files.iter().try_fold(String::new(), |_, f| {
+                        session.upload(std::slice::from_ref(f), &target, &filter, &CANCEL, &mut notify)
+                    }),
                 }
             })();
             post(hwnd, Msg::Done(result));
@@ -553,6 +765,12 @@ impl App {
                 send(item(self.hwnd, PROGRESS), PBM_SETPOS, (p * 1000.0) as usize, 0);
             }
             Msg::Event(Event::Report(url)) => self.report = url,
+            Msg::Fights(path, fights) => self.show_fights(path, fights),
+            Msg::Split(result) => {
+                self.set_job(Job::Idle);
+                self.refresh();
+                self.status(&result.unwrap_or_else(|e| e));
+            }
             Msg::Done(Ok(url)) => {
                 self.status(&format!("Done: {url}"));
                 self.set_job(Job::Idle);
@@ -577,6 +795,9 @@ impl App {
             (SIGN_IN, BN_CLICKED) => self.sign_in(),
             (BROWSE, BN_CLICKED) => self.browse(),
             (REFRESH, BN_CLICKED) => self.refresh(),
+            (FIGHTS, BN_CLICKED) => self.scan(),
+            (SPLIT, BN_CLICKED) => self.split(),
+            (SKIP_TRASH | SKIP_WIPES | SKIP_FAILED | SKIP_SHORT | MERGE, BN_CLICKED) => self.check(id),
             (UPLOAD, BN_CLICKED) => self.start(false),
             (LOGS, LBN_DBLCLK) => self.start(false),
             (LIVE, BN_CLICKED) if self.job == Job::Live => {
@@ -666,6 +887,7 @@ pub fn run() -> ExitCode {
             cfg: Config::load(),
             account: None,
             logs: Vec::new(),
+            fights: None,
             report: String::new(),
             job: Job::Idle,
         }));

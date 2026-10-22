@@ -75,9 +75,11 @@ final class Engine {
 
     func liveStart(_ ms: Int64) throws { try ask("set-live-logging-start-time", ["startTime": ms]) }
 
-    func parse(_ lines: [String], region: Any?, file: String, span: (Int64, Int64)) throws {
+    func parse(_ lines: [String], region: Any?, file: String, span: (Int64, Int64),
+               raids: [(Int64, Int64)] = [], scanning: Bool = false) throws {
         try ask("parse-lines", [
-            "lines": lines, "selectedRegion": (region as? NSNumber) ?? 0, "raidsToUpload": [], "scanning": false,
+            "lines": lines, "selectedRegion": (region as? NSNumber) ?? 0,
+            "raidsToUpload": raids.map { ["start": $0.0, "end": $0.1] }, "scanning": scanning,
             "logFilePosition": ["filePath": file, "startingPosition": span.0, "currentPosition": span.1],
         ])
 
@@ -91,6 +93,18 @@ final class Engine {
         let v = (try? JSONSerialization.jsonObject(with: Data(s.utf8)) as? [String: NSNumber]) ?? [:]
         return Summary(count: v["count"]?.intValue ?? 0, start: v["start"]?.int64Value ?? 0,
                        end: v["end"]?.int64Value ?? 0, mythic: v["mythic"]?.intValue ?? 0)
+    }
+
+    func scanned() throws -> [Fight] {
+        try ask("collect-fights", ["pushFightIfNeeded": true, "scanningOnly": true])
+        try ask("collect-scanned-raids")
+        let s = try eval("__scanned()").toString() ?? "[]"
+        let list = (try? JSONSerialization.jsonObject(with: Data(s.utf8)) as? [[String: Any]]) ?? []
+        let num = { (v: [String: Any], k: String) in (v[k] as? NSNumber)?.int64Value ?? 0 }
+        return list.map {
+            Fight(name: $0["name"] as? String ?? "Unknown", start: num($0, "start"), end: num($0, "end"), boss: num($0, "boss"),
+                  difficulty: num($0, "difficulty"), success: $0["success"] as? Bool ?? false, pulls: num($0, "pulls"))
+        }
     }
 
     func fightsText() throws -> String { try eval("__fightsText()").toString() ?? "" }

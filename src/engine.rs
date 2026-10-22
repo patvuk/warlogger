@@ -11,6 +11,12 @@ pub struct Summary {
     pub mythic: i64,
 }
 
+#[derive(Clone, Copy, Default)]
+pub struct Scan<'a> {
+    pub raids: &'a [(i64, i64)],
+    pub scanning: bool,
+}
+
 pub struct Engine {
     rt: Runtime,
     ctx: Context,
@@ -110,9 +116,24 @@ impl Engine {
         self.ask("set-live-logging-start-time", |m| m.set("startTime", ms as f64))
     }
 
-    pub fn parse(&self, lines: Vec<String>, region: &Value, file: &str, span: (u64, u64)) -> Result<(), String> {
+    pub fn parse(
+        &self,
+        lines: Vec<String>,
+        region: &Value,
+        file: &str,
+        span: (u64, u64),
+        scan: Scan,
+    ) -> Result<(), String> {
         let region = region.as_i64().unwrap_or(0) as f64;
         self.ask("parse-lines", |m| {
+            let raids = rquickjs::Array::new(m.ctx().clone())?;
+            for (i, &(start, end)) in scan.raids.iter().enumerate() {
+                let raid = Object::new(m.ctx().clone())?;
+                raid.set("start", start as f64)?;
+                raid.set("end", end as f64)?;
+                raids.set(i, raid)?;
+            }
+
             let position = Object::new(m.ctx().clone())?;
             position.set("filePath", file)?;
             position.set("startingPosition", span.0 as f64)?;
@@ -120,8 +141,8 @@ impl Engine {
 
             m.set("lines", lines)?;
             m.set("selectedRegion", region)?;
-            m.set("raidsToUpload", Vec::<String>::new())?;
-            m.set("scanning", false)?;
+            m.set("raidsToUpload", raids)?;
+            m.set("scanning", scan.scanning)?;
             m.set("logFilePosition", position)
         })?;
 
@@ -146,6 +167,15 @@ impl Engine {
             end: num("end"),
             mythic: num("mythic"),
         })
+    }
+
+    pub fn scanned(&self) -> Result<String, String> {
+        self.ask("collect-fights", |m| {
+            m.set("pushFightIfNeeded", true)?;
+            m.set("scanningOnly", true)
+        })?;
+        self.ask("collect-scanned-raids", |_| Ok(()))?;
+        self.eval("__scanned()")
     }
 
     pub fn fights_text(&self) -> Result<String, String> {

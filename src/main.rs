@@ -6,6 +6,7 @@ mod net;
 #[cfg(all(feature = "omarchy", target_os = "linux"))]
 mod omarchy;
 mod site;
+mod split;
 mod store;
 #[cfg(unix)]
 mod unix;
@@ -22,7 +23,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 use std::sync::atomic::AtomicBool;
 use store::Config;
-use upload::{Event, Session, Target};
+use upload::{Event, Filter, Session, Target};
 
 #[cfg(unix)]
 use unix as platform;
@@ -41,6 +42,8 @@ commands:
   login                       sign in and remember the account
   logs                        list log files, newest first
   upload [latest|N|path]...   upload logs by index from `logs`, path, or the newest
+  fights [latest|N|path]      list the fights in a log, numbered for --fights
+  split [latest|N|path]...    split logs into one file per boss, key, zone or session
   live [--all]                upload fights as they happen until stopped
   stop                        stop a running `live`
   set <key> <value>           set a default (game, region, guild, visibility, description, dir.<game>)
@@ -53,7 +56,13 @@ options:
   -r, --region <name|id>
   -G, --guild <name|id>       guild to upload to, personal logs if unset
   -v, --visibility <name|id>  public, private, unlisted
-  -m, --desc <text>           report description";
+  -m, --desc <text>           report description
+  -M, --merge                 upload all given logs into one report
+  -f, --fights <list>         only these fights from `fights`, e.g. 1,3-5
+      --no-trash              skip trash fights
+      --no-wipes              skip boss wipes
+      --no-failed             skip failed or abandoned Mythic+ keys
+      --no-short              skip fights, and split pieces, under 10 seconds";
 
 pub static CANCEL: AtomicBool = AtomicBool::new(false);
 
@@ -69,6 +78,9 @@ pub struct Args {
     visibility: Option<String>,
     desc: Option<String>,
     all: bool,
+    merge: bool,
+    fights: Option<String>,
+    filter: Filter,
 }
 
 fn parse() -> Result<Args, String> {
@@ -86,6 +98,12 @@ fn parse() -> Result<Args, String> {
             "-v" | "--visibility" => args.visibility = Some(value()?),
             "-m" | "--desc" => args.desc = Some(value()?),
             "-a" | "--all" => args.all = true,
+            "-M" | "--merge" => args.merge = true,
+            "-f" | "--fights" => args.fights = Some(value()?),
+            "--no-trash" => args.filter.trash = true,
+            "--no-wipes" => args.filter.wipes = true,
+            "--no-failed" => args.filter.failed = true,
+            "--no-short" => args.filter.short = true,
             "-h" | "--help" => args.command = "help".into(),
             "-V" | "--version" => args.command = "version".into(),
             _ if args.command.is_empty() => args.command = arg,
@@ -306,10 +324,31 @@ fn selected(cfg: &Config, args: &Args, game: &Game) -> Result<Vec<PathBuf>, Stri
     Ok(out)
 }
 
+fn numbers(list: &str, max: usize) -> Result<Vec<usize>, String> {
+    let mut out = Vec::new();
+    for part in list.split(',').map(str::trim).filter(|p| !p.is_empty()) {
+        let (a, b) = part.split_once('-').unwrap_or((part, part));
+        let parse = |n: &str| {
+            n.trim()
+                .parse::<usize>()
+                .map_err(|_| format!("{part}: not a fight number"))
+        };
+        let (a, b) = (parse(a)?, parse(b)?);
+        if a == 0 || b > max || a > b {
+            return Err(format!("{part}: fights are numbered 1 to {max}"));
+        }
+        out.extend(a..=b);
+    }
+    Ok(out)
+}
+
 fn upload(cfg: Config, args: Args) -> Result<(), String> {
     let game = game(&cfg, &args)?;
     let files = selected(&cfg, &args, game)?;
     let (email, password) = credentials(&cfg, &args, game)?;
+    if args.fights.is_some() && files.len() > 1 {
+        return Err("--fights works on one log at a time".into());
+    }
 
     big_stack(move || {
         let mut printer = Printer::new();
@@ -317,15 +356,66 @@ fn upload(cfg: Config, args: Args) -> Result<(), String> {
         let result = (|| {
             let mut session = Session::open(game, &email, &password, &mut notify)?;
             let target = target(&cfg, &args, &session.account)?;
+            let mut filter = args.filter.clone();
 
-            for file in files {
-                let url = session.upload(&file, &target, &CANCEL, &mut notify)?;
+            if let Some(list) = &args.fights {
+                let fights = session.scan(&files[0], &target.region, &CANCEL, &mut notify)?;
+                let picked = numbers(list, fights.len())?;
+                filter.fights = Some(
+                    picked
+                        .iter()
+                        .map(|&i| (fights[i - 1].start, fights[i - 1].end))
+                        .collect(),
+                );
+            }
+
+            let groups: Vec<Vec<PathBuf>> = match args.merge {
+                true => vec![files],
+                false => files.into_iter().map(|f| vec![f]).collect(),
+            };
+            for group in groups {
+                let url = session.upload(&group, &target, &filter, &CANCEL, &mut notify)?;
                 println!("{url}");
             }
             Ok(())
         })();
         printer.finish(result)
     })
+}
+
+fn fights(cfg: Config, args: Args) -> Result<(), String> {
+    let game = game(&cfg, &args)?;
+    let file = selected(&cfg, &args, game)?.remove(0);
+    let (email, password) = credentials(&cfg, &args, game)?;
+
+    big_stack(move || {
+        let mut printer = Printer::new();
+        let mut notify = |e| printer.event(e);
+        let mut session = Session::open(game, &email, &password, &mut notify)?;
+        let target = target(&cfg, &args, &session.account)?;
+
+        for (i, fight) in session
+            .scan(&file, &target.region, &CANCEL, &mut notify)?
+            .iter()
+            .enumerate()
+        {
+            let mark = if args.filter.keep(game, fight) { ' ' } else { '-' };
+            println!("{:>3}{mark} {}", i + 1, fight.label(game));
+        }
+        Ok(())
+    })
+}
+
+fn split(cfg: Config, args: Args) -> Result<(), String> {
+    let game = game(&cfg, &args)?;
+    let mut printer = Printer::new();
+
+    for file in selected(&cfg, &args, game)? {
+        for piece in split::split(game, &file, args.filter.short, &CANCEL, &mut |e| printer.event(e))? {
+            println!("{}", piece.display());
+        }
+    }
+    Ok(())
 }
 
 fn live(cfg: Config, args: Args) -> Result<(), String> {
@@ -394,6 +484,8 @@ fn main() -> ExitCode {
         "login" => login(cfg, &args),
         "logs" => logs(&cfg, &args),
         "upload" => upload(cfg, args),
+        "fights" => fights(cfg, args),
+        "split" => split(cfg, args),
         "live" => live(cfg, args),
         "set" => set(cfg, &args),
         #[cfg(unix)]

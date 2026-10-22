@@ -1,4 +1,4 @@
-use crate::engine::Engine;
+use crate::engine::{Engine, Scan};
 use crate::game::Game;
 use crate::site::{Account, Report, Site, now_ms};
 use crate::zip;
@@ -26,6 +26,77 @@ pub struct Target {
     pub guild: Option<Value>,
     pub visibility: Option<Value>,
     pub description: String,
+}
+
+#[derive(Clone, Debug)]
+pub struct Fight {
+    pub name: String,
+    pub start: i64,
+    pub end: i64,
+    pub boss: i64,
+    pub difficulty: i64,
+    pub success: bool,
+    pub pulls: i64,
+}
+
+#[derive(Clone, Default)]
+pub struct Filter {
+    pub trash: bool,
+    pub wipes: bool,
+    pub failed: bool,
+    pub short: bool,
+    pub fights: Option<Vec<(i64, i64)>>,
+}
+
+impl Fight {
+    pub fn key(&self, game: &Game) -> bool {
+        game.id == "wow" && self.difficulty == 8 && self.boss > 0
+    }
+
+    pub fn label(&self, game: &Game) -> String {
+        let result = match (self.boss, self.key(game), self.success) {
+            (0, ..) => "trash",
+            (_, true, true) => "timed",
+            (_, true, false) => "failed",
+            (_, false, true) => "kill",
+            _ => "wipe",
+        };
+        let secs = (self.end - self.start).max(0) / 1000;
+        let pulls = if self.pulls > 1 {
+            format!(" x{}", self.pulls)
+        } else {
+            String::new()
+        };
+        let difficulty = match game.difficulty(self.difficulty) {
+            "" => String::new(),
+            d => format!(" {d}"),
+        };
+        format!(
+            "{}{difficulty}  {result}{pulls}  {}:{:02}",
+            self.name,
+            secs / 60,
+            secs % 60
+        )
+    }
+}
+
+impl Filter {
+    pub fn scans(&self) -> bool {
+        self.trash || self.wipes || self.failed || self.short
+    }
+
+    pub fn keep(&self, game: &Game, f: &Fight) -> bool {
+        let key = f.key(game);
+        !(self.trash && f.boss == 0
+            || self.wipes && f.boss > 0 && !key && !f.success
+            || self.failed && key && !f.success
+            || self.short && f.end - f.start < crate::split::SHORT)
+    }
+}
+
+fn file_name(path: &Path) -> String {
+    path.file_name()
+        .map_or_else(String::new, |n| n.to_string_lossy().into_owned())
 }
 
 pub struct Session {
@@ -146,13 +217,22 @@ impl Session {
         Ok(Run { code, segment: 1, live })
     }
 
-    fn part(&mut self, run: &mut Run, region: &Value, file: &str, part: Part, push: bool) -> Result<bool, String> {
+    fn part(
+        &mut self,
+        run: &mut Run,
+        region: &Value,
+        file: &str,
+        part: Part,
+        push: bool,
+        raids: &[(i64, i64)],
+    ) -> Result<bool, String> {
         if part.lines.is_empty() && !push {
             return Ok(false);
         }
 
         if !part.lines.is_empty() {
-            self.engine.parse(part.lines, region, file, part.span)?;
+            let scan = Scan { raids, scanning: false };
+            self.engine.parse(part.lines, region, file, part.span, scan)?;
         }
 
         let fights = self.engine.fights(push)?;
@@ -193,57 +273,149 @@ impl Session {
 
     pub fn upload(
         &mut self,
-        path: &Path,
+        files: &[PathBuf],
         target: &Target,
+        filter: &Filter,
         cancel: &AtomicBool,
         notify: &mut dyn FnMut(Event),
     ) -> Result<String, String> {
-        let name = path
-            .file_name()
-            .map_or_else(String::new, |n| n.to_string_lossy().into_owned());
-        let mut reader = Reader::open(path, self.game.latin1)?;
+        let mut files = files.to_vec();
+        files.sort_by_key(|f| std::fs::metadata(f).and_then(|m| m.modified()).ok());
+
+        let mut plan = Vec::new();
+        for path in files {
+            let raids = match (&filter.fights, filter.scans()) {
+                (Some(raids), _) => raids.clone(),
+                (None, true) => {
+                    notify(Event::Step(format!("scanning {}", file_name(&path))));
+                    let fights = self.scan(&path, &target.region, cancel, notify)?;
+                    let kept: Vec<_> = fights
+                        .iter()
+                        .filter(|f| filter.keep(self.game, f))
+                        .map(|f| (f.start, f.end))
+                        .collect();
+                    if kept.is_empty() {
+                        notify(Event::Step(format!(
+                            "{}: every fight was filtered out",
+                            file_name(&path)
+                        )));
+                        continue;
+                    }
+                    kept
+                }
+                (None, false) => Vec::new(),
+            };
+            plan.push((path, raids));
+        }
+
+        let Some((first, _)) = plan.first() else {
+            return Err("no fights left to upload".into());
+        };
+        let name = match plan.len() {
+            1 => file_name(first),
+            n => format!("{} +{}", file_name(first), n - 1),
+        };
 
         notify(Event::Step(format!("uploading {name}")));
         let mut run = self.begin(target, &name, false)?;
-        notify(Event::Report(self.site.report_url(&run.code)));
+        let url = self.site.report_url(&run.code);
+        notify(Event::Report(url.clone()));
 
-        let result = self.feed(&mut run, &mut reader, path, target, cancel, notify);
+        let result = self.feed_all(&mut run, &plan, target, cancel, notify);
         match self.finish(&run, result)? {
             0 => Err(format!("{name}: no fights found")),
-            _ => Ok(self.site.report_url(&run.code)),
+            _ => Ok(url),
         }
     }
 
-    fn feed(
+    fn feed_all(
         &mut self,
         run: &mut Run,
-        reader: &mut Reader,
-        path: &Path,
+        plan: &[(PathBuf, Vec<(i64, i64)>)],
         target: &Target,
         cancel: &AtomicBool,
         notify: &mut dyn FnMut(Event),
     ) -> Result<usize, String> {
+        let total = plan
+            .iter()
+            .map(|(p, _)| std::fs::metadata(p).map_or(0, |m| m.len()))
+            .sum::<u64>()
+            .max(1);
+        let (mut done, mut fights) = (0, 0);
+
+        for (path, raids) in plan {
+            if plan.len() > 1 {
+                notify(Event::Step(format!("uploading {}", file_name(path))));
+            }
+            let mut reader = Reader::open(path, self.game.latin1)?;
+            if let Some(date) = self.game.start_date(path) {
+                self.engine.start_date(&date)?;
+            }
+
+            let file = path.to_string_lossy().into_owned();
+            while !cancel.load(Ordering::Relaxed) {
+                let part = reader.next(true)?;
+                let eof = part.eof;
+
+                fights += self.part(run, &target.region, &file, part, eof, raids)? as usize;
+                notify(Event::Progress((done + reader.pos) as f32 / total as f32));
+
+                if eof {
+                    break;
+                }
+            }
+            done += reader.len();
+        }
+
+        Ok(fights)
+    }
+
+    pub fn scan(
+        &mut self,
+        path: &Path,
+        region: &Value,
+        cancel: &AtomicBool,
+        notify: &mut dyn FnMut(Event),
+    ) -> Result<Vec<Fight>, String> {
+        self.engine.reset()?;
         if let Some(date) = self.game.start_date(path) {
             self.engine.start_date(&date)?;
         }
 
+        let mut reader = Reader::open(path, self.game.latin1)?;
         let file = path.to_string_lossy().into_owned();
         let size = reader.len().max(1);
-        let mut fights = 0;
+        let scan = Scan {
+            raids: &[],
+            scanning: true,
+        };
 
         while !cancel.load(Ordering::Relaxed) {
             let part = reader.next(true)?;
-            let eof = part.eof;
-
-            fights += self.part(run, &target.region, &file, part, eof)? as usize;
+            self.engine.parse(part.lines, region, &file, part.span, scan)?;
             notify(Event::Progress(reader.pos as f32 / size as f32));
-
-            if eof {
+            if part.eof {
                 break;
             }
         }
 
-        Ok(fights)
+        let fights = self.engine.scanned();
+        self.engine.reset()?;
+
+        let list: Vec<Value> = serde_json::from_str(&fights?).map_err(|e| e.to_string())?;
+        let num = |v: &Value, k: &str| v[k].as_f64().unwrap_or(0.0) as i64;
+        Ok(list
+            .iter()
+            .map(|v| Fight {
+                name: v["name"].as_str().unwrap_or("Unknown").to_owned(),
+                start: num(v, "start"),
+                end: num(v, "end"),
+                boss: num(v, "boss"),
+                difficulty: num(v, "difficulty"),
+                success: v["success"].as_bool().unwrap_or(false),
+                pulls: num(v, "pulls"),
+            })
+            .collect())
     }
 
     pub fn live(
@@ -322,7 +494,7 @@ impl Session {
             let push = stop || (idle && !pushed);
             let file = path.to_string_lossy().into_owned();
 
-            if self.part(run, &target.region, &file, part, push)? {
+            if self.part(run, &target.region, &file, part, push, &[])? {
                 notify(Event::Step("uploaded new fights".into()));
             }
             pushed |= push;

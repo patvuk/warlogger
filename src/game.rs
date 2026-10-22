@@ -166,6 +166,26 @@ impl Game {
             && name.ends_with(self.suffix)
     }
 
+    pub fn difficulty(&self, id: i64) -> &'static str {
+        if self.prefix != "WoWCombatLog" {
+            return "";
+        }
+        match id {
+            1 | 14 => "Normal",
+            2 | 15 => "Heroic",
+            3 | 175 => "10 Normal",
+            4 | 176 => "25 Normal",
+            5 | 193 => "10 Heroic",
+            6 | 194 => "25 Heroic",
+            7 | 17 => "LFR",
+            8 => "Mythic+",
+            9 | 186 => "40 Player",
+            16 | 23 => "Mythic",
+            24 | 33 => "Timewalking",
+            _ => "",
+        }
+    }
+
     pub fn start_date(&self, path: &Path) -> Option<String> {
         if self.id != "swtor" {
             return None;

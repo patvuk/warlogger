@@ -16,6 +16,24 @@ struct Game: Identifiable, Hashable {
         name.count >= prefix.count + suffix.count && name.hasPrefix(prefix) && name.hasSuffix(suffix)
     }
 
+    func difficulty(_ id: Int64) -> String {
+        guard prefix == "WoWCombatLog" else { return "" }
+        switch id {
+        case 1, 14: return "Normal"
+        case 2, 15: return "Heroic"
+        case 3, 175: return "10 Normal"
+        case 4, 176: return "25 Normal"
+        case 5, 193: return "10 Heroic"
+        case 6, 194: return "25 Heroic"
+        case 7, 17: return "LFR"
+        case 8: return "Mythic+"
+        case 9, 186: return "40 Player"
+        case 16, 23: return "Mythic"
+        case 24, 33: return "Timewalking"
+        default: return ""
+        }
+    }
+
     func startDate(_ url: URL) -> String? {
         guard id == "swtor" else { return nil }
         let stem = url.deletingPathExtension().lastPathComponent.dropFirst(prefix.count)

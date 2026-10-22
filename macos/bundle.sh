@@ -10,7 +10,7 @@ rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 
 cp "$(swift build -c release --arch arm64 --arch x86_64 --show-bin-path)/Warlogger" "$app/Contents/MacOS/"
-cp ../host/host.js "$app/Contents/Resources/"
+cp ../host/host.js ../assets/warlogger.icns "$app/Contents/Resources/"
 
 cat > "$app/Contents/Info.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -18,6 +18,7 @@ cat > "$app/Contents/Info.plist" <<EOF
 <plist version="1.0">
 <dict>
   <key>CFBundleExecutable</key><string>Warlogger</string>
+  <key>CFBundleIconFile</key><string>warlogger</string>
   <key>CFBundleIdentifier</key><string>com.patvuk.warlogger</string>
   <key>CFBundleName</key><string>Warlogger</string>
   <key>CFBundlePackageType</key><string>APPL</string>
