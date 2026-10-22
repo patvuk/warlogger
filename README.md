@@ -26,116 +26,25 @@
 | `swtor` | Star Wars: The Old Republic | swtorlogs.com | `combat_*.txt` |
 | `fellowship` | Fellowship | fellowshiplogs.com | `CombatLog*.txt` |
 
-Each site has its own account. Warlogger remembers one email per site and keeps the password in the system keychain.
+Each site has a different account. Warlogger keeps one email for each site. It keeps the password in the system keychain.
 
 ## Platforms
 
 | | Built with | App |
 |---|---|---|
-| Windows | Rust, Win32, WinHTTP, Credential Manager | window when started without arguments, CLI with them |
-| Linux | Rust, rustls, Secret Service | CLI, plus an Omarchy bar widget |
-| macOS | Swift, SwiftUI, URLSession, JavaScriptCore, Keychain | menu bar app |
+| Windows | Rust, Win32, WinHTTP, Credential Manager | Window without arguments, CLI with arguments |
+| Linux | Rust, rustls, Secret Service | CLI and an Omarchy bar widget |
+| macOS | Swift, SwiftUI, URLSession, JavaScriptCore, Keychain | Menu bar app |
 
 ## Install
 
-Download your platform's archive from [Releases](../../releases).
+Download the file for your platform from [Releases](../../releases).
 
-- **Windows**: run `warlogger.exe`.
-- **macOS**: unzip and move `Warlogger.app` to Applications. The app isn't notarized, so macOS blocks it the first time. Either open **System Settings → Privacy & Security** and click **Open Anyway**, or run `xattr -dr com.apple.quarantine /Applications/Warlogger.app`. It runs in the menu bar, with no Dock icon.
-- **Linux**: put `warlogger` on your `PATH`.
-- **Omarchy**: use the `-omarchy` archive, put `warlogger` on your `PATH`, then run `warlogger omarchy install`.
+- **Windows**: Start `warlogger.exe`.
+- **macOS**: Unzip the file. Move `Warlogger.app` to Applications. The app is not notarized, thus macOS stops it the first time. Open **System Settings → Privacy & Security** and click **Open Anyway**. Or, run `xattr -dr com.apple.quarantine /Applications/Warlogger.app`. The app shows in the menu bar, not in the Dock.
+- **Linux**: Put `warlogger` in a directory on your `PATH`.
+- **Omarchy**: Use the `-omarchy` file. Put `warlogger` in a directory on your `PATH`. Then run `warlogger omarchy install`.
 
 ## Use
 
-The Windows and macOS apps work the same way: pick the game, sign in, choose the guild, region and visibility, select one or more logs, then press **Upload selected**. **Start live** uploads fights while you play, and **Stop live** uploads the last fight and closes the report.
-
-- **Merge selected** uploads all the selected logs into one report instead of one report each.
-- **Skip trash**, **Skip wipes**, **Skip failed keys** and **Skip short** leave those fights out of the upload. Failed keys are Mythic+ runs that weren't timed or were abandoned, and short means under 10 seconds.
-- **Fights** lists the fights in the selected log, with the skipped ones already unselected. Pick the ones you want and press **Upload selected**. **Logs** goes back to the log list.
-- **Split** cuts each selected log into smaller logs next to it, the same way the official uploader does: World of Warcraft by boss, Mythic+ key and four-hour break, FF XIV and Fellowship by zone, and ESO by session. With **Skip short** on, pieces under 10 seconds are deleted. The original log is never changed.
-
-On the command line:
-
-```sh
-warlogger login -g wow
-warlogger logs
-warlogger upload 1 3
-warlogger upload latest -v unlisted -G "My Guild"
-warlogger upload 1 2 3 --merge --no-trash --no-wipes
-warlogger fights latest
-warlogger upload latest --fights 2,5-7
-warlogger split latest --no-short
-warlogger live
-warlogger stop
-```
-
-| Command | What it does |
-|---|---|
-| `games` | lists the sites and their ids |
-| `login` | signs in and saves the account for that site |
-| `logs` | lists the game's log files, newest first, with the number `upload` takes |
-| `upload [latest\|N\|path]...` | uploads logs by number, by path, or the newest one |
-| `fights [latest\|N\|path]` | lists a log's fights with the numbers `--fights` takes; skipped fights are marked `-` |
-| `split [latest\|N\|path]...` | splits logs into one file per boss, key, zone or session |
-| `live [--all]` | uploads fights as they happen until stopped; `--all` also includes fights already in the file |
-| `stop` | stops `live` (Linux) |
-| `update` | downloads the newest release from GitHub and replaces the running binary |
-| `set <key> <value>` | saves a default: `game`, `guild`, `region`, `visibility`, `description`, `dir.<game>` |
-
-| Option | |
-|---|---|
-| `-g, --game <id>` | site to upload to |
-| `-d, --dir <path>` | log folder, when it isn't found on its own |
-| `-e, --email <email>` | account email |
-| `-G, --guild <name or id>` | guild, personal logs when unset |
-| `-r, --region <name or id>` | region or server |
-| `-v, --visibility <name or id>` | public, private or unlisted |
-| `-m, --desc <text>` | report description |
-| `-M, --merge` | uploads all the given logs into one report |
-| `-f, --fights <list>` | uploads only these fights, numbered as in `fights`, e.g. `1,3-5` |
-| `--no-trash` | skips trash fights |
-| `--no-wipes` | skips boss wipes |
-| `--no-failed` | skips Mythic+ keys that weren't timed or were abandoned |
-| `--no-short` | skips fights under 10 seconds, and deletes split pieces under 10 seconds |
-
-`WARLOGGER_PASSWORD` overrides the saved password. The config lives in `~/.config/warlogger/config` on Linux and `%APPDATA%\warlogger\config` on Windows. The macOS app keeps its settings in its user defaults.
-
-## Updates
-
-The Windows and macOS apps check GitHub for a newer release when they start, and again when you press **Updates** (Windows) or **Check for updates** (macOS). They never check in the background. When a newer release exists, the Windows app asks before updating, and the macOS app shows an **Update and restart** button. On the command line, `warlogger update` updates the binary in place.
-
-## Omarchy
-
-`warlogger omarchy install` adds a bar widget. It shows the upload progress or **LIVE** in the bar, and its panel has:
-
-- a game switcher
-- the newest logs (click one to upload it)
-- Upload latest, Live / Stop live, Report, Login, Folder and About buttons
-
-`warlogger omarchy uninstall` removes it. During uploads, the CLI writes its state to `$XDG_RUNTIME_DIR/warlogger/status.json` for the widget to read.
-
-## How it works
-
-Warlogger uses the same `/desktop-client` endpoints as the official uploader:
-
-1. It signs in with your email and password.
-2. It downloads the site's own parser from `/desktop-client/parser` and runs it in an embedded JavaScript engine (QuickJS on Windows and Linux, JavaScriptCore on macOS). `host/host.js` provides the few browser objects the parser expects. The parser is always current, and nothing about the log format is reimplemented.
-3. It reads the log in 4 MB chunks and feeds the lines to the parser. When fights are filtered or picked, it first runs the parser in scanning mode to list the fights, then passes the chosen time ranges back to it during the upload.
-4. For each batch of finished fights, it zips the master table and the events, uploads them as a report segment, and frees them.
-5. It closes the report when done.
-
-Only one chunk and one segment are in memory at a time. In testing, a 40 MB log uploaded in 16 seconds and peaked at 40 MB of resident memory.
-
-Prior art: [combatlog](https://github.com/thevinter/combatlog), [ACTLogsUploader](https://github.com/zhui-zi/ACTLogsUploader) and [FFLogsUploader](https://github.com/Robert5204/FFLogsUploader).
-
-## Build
-
-```sh
-cargo build --release
-cargo build --release --features omarchy
-macos/bundle.sh 0.3.1
-```
-
-## Disclaimer
-
-Warlogger is unofficial. It uses an undocumented protocol, which can change at any time, so use it at your own risk.
+Refer to [docs/usage.md](docs/usage.md).
