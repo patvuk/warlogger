@@ -14,12 +14,16 @@ use windows_sys::Win32::UI::Controls::{
     TASKDIALOG_BUTTON, TASKDIALOGCONFIG, TDCBF_CANCEL_BUTTON, TDE_CONTENT, TDF_ALLOW_DIALOG_CANCELLATION,
     TDF_USE_HICON_MAIN, TDM_SET_ELEMENT_TEXT, TDN_BUTTON_CLICKED,
 };
+use windows_sys::Win32::UI::HiDpi::{
+    DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, GetDpiForSystem, SetProcessDpiAwarenessContext,
+};
 use windows_sys::Win32::UI::Shell::{
     BFFM_INITIALIZED, BFFM_SETSELECTIONW, BIF_NEWDIALOGSTYLE, BIF_RETURNONLYFSDIRS, BROWSEINFOW, SHBrowseForFolderW,
     SHGetPathFromIDListW,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    IDYES, LoadIconW, MB_ICONINFORMATION, MB_ICONQUESTION, MB_YESNO, MessageBoxW, SendMessageW,
+    IDYES, IMAGE_ICON, LR_DEFAULTCOLOR, LoadImageW, MB_ICONINFORMATION, MB_ICONQUESTION, MB_YESNO, MessageBoxW,
+    SendMessageW,
 };
 use windows_sys::core::{BOOL, HRESULT};
 
@@ -276,7 +280,9 @@ fn ask(dir: &Path) -> Option<PathBuf> {
     config.dwFlags = TDF_ALLOW_DIALOG_CANCELLATION | TDF_USE_HICON_MAIN;
     config.dwCommonButtons = TDCBF_CANCEL_BUTTON;
     config.pszWindowTitle = title.as_ptr();
-    config.Anonymous1.hMainIcon = unsafe { LoadIconW(config.hInstance, 1 as _) };
+    let size = (32 * unsafe { GetDpiForSystem() } / 96) as i32;
+    config.Anonymous1.hMainIcon =
+        unsafe { LoadImageW(config.hInstance, 1 as _, IMAGE_ICON, size, size, LR_DEFAULTCOLOR) };
     config.pszMainInstruction = heading.as_ptr();
     config.pszContent = state.content.as_ptr();
     config.cButtons = buttons.len() as u32;
@@ -308,6 +314,10 @@ fn install(dir: &Path) -> Result<PathBuf, String> {
     Ok(exe)
 }
 
+fn sharp() {
+    unsafe { SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) };
+}
+
 pub fn adopt() -> bool {
     let Ok(current) = std::env::current_exe() else {
         return false;
@@ -317,6 +327,7 @@ pub fn adopt() -> bool {
         return false;
     }
 
+    sharp();
     let Some(dir) = ask(&install_dir()) else {
         return true;
     };
@@ -333,6 +344,7 @@ pub fn adopt() -> bool {
 }
 
 pub fn uninstall(quiet: bool) -> Result<(), String> {
+    sharp();
     if !quiet
         && message(
             "Remove Warlogger, its settings and its saved passwords?",
