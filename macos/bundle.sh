@@ -30,6 +30,6 @@ cat > "$app/Contents/Info.plist" <<EOF
 </plist>
 EOF
 
-codesign --force --deep --sign - "$app"
+codesign --force --deep --sign - --options runtime --entitlements Warlogger.entitlements "$app"
 ditto -c -k --keepParent "$app" ".build/Warlogger-macos.zip"
 echo ".build/Warlogger-macos.zip"

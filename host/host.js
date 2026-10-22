@@ -80,6 +80,12 @@ function __drain() {
 }
 
 function __send(msg) {
+  if (typeof msg.text === "string") {
+    var lines = msg.text.split(msg.text.indexOf("\r") < 0 ? "\n" : /\r?\n/);
+    if (lines.length && lines[lines.length - 1] === "") lines.pop();
+    msg.lines = lines;
+    delete msg.text;
+  }
   var event = { data: msg, origin: "*", source: __sink, ports: [] };
   for (var i = 0; i < __listeners.length; i++) __listeners[i](event);
   __drain();

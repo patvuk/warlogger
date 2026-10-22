@@ -52,7 +52,7 @@ struct Filter {
 }
 
 private struct Part {
-    var lines: [String]
+    var text: String
     var span: (Int64, Int64)
     var eof: Bool
 }
@@ -86,12 +86,8 @@ private final class Reader {
         data = data.prefix(cut)
         pos = start + Int64(cut)
 
-        let lines = data.split(separator: 10).compactMap { raw -> String? in
-            let line = raw.last == 13 ? raw.dropLast() : raw
-            guard !line.isEmpty else { return nil }
-            return latin1 ? String(line.map { Character(Unicode.Scalar($0)) }) : String(decoding: line, as: UTF8.self)
-        }
-        return Part(lines: lines, span: (start, pos), eof: pos >= length)
+        let text = latin1 ? String(data: data, encoding: .isoLatin1) ?? "" : String(decoding: data, as: UTF8.self)
+        return Part(text: text, span: (start, pos), eof: pos >= length)
     }
 }
 
@@ -126,8 +122,8 @@ final class Uploader {
     }
 
     private func part(_ part: Part, region: Any?, file: String, push: Bool, raids: [(Int64, Int64)] = []) async throws -> Bool {
-        if part.lines.isEmpty && !push { return false }
-        if !part.lines.isEmpty { try engine.parse(part.lines, region: region, file: file, span: part.span, raids: raids) }
+        if part.text.isEmpty && !push { return false }
+        if !part.text.isEmpty { try engine.parse(part.text, region: region, file: file, span: part.span, raids: raids) }
 
         let fights = try engine.fights(push: push)
         guard fights.count > 0 else { return false }
@@ -165,11 +161,15 @@ final class Uploader {
         let reader = try Reader(url, latin1: game.latin1)
         let size = Double(max(reader.length, 1))
 
-        while !cancelled() {
-            let next = try reader.next(flush: true)
-            try engine.parse(next.lines, region: region, file: url.path, span: next.span, scanning: true)
-            notify(.progress(Double(reader.pos) / size))
-            if next.eof { break }
+        var eof = false
+        while !eof && !cancelled() {
+            try autoreleasepool {
+                let next = try reader.next(flush: true)
+                try engine.parse(next.text, region: region, file: url.path, span: next.span, scanning: true)
+                notify(.progress(Double(reader.pos) / size))
+                eof = next.eof
+                if reader.pos % (32 << 20) < 4 << 20 { engine.collect() }
+            }
         }
 
         defer { try? engine.reset() }
@@ -251,7 +251,7 @@ final class Uploader {
                 }
 
                 let next = try reader.next(flush: stop)
-                let fresh = !next.lines.isEmpty
+                let fresh = !next.text.isEmpty
                 let modified = (try? path.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
                 let idle = Date().timeIntervalSince(modified) > 120
 

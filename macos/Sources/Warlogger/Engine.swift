@@ -75,10 +75,10 @@ final class Engine {
 
     func liveStart(_ ms: Int64) throws { try ask("set-live-logging-start-time", ["startTime": ms]) }
 
-    func parse(_ lines: [String], region: Any?, file: String, span: (Int64, Int64),
+    func parse(_ text: String, region: Any?, file: String, span: (Int64, Int64),
                raids: [(Int64, Int64)] = [], scanning: Bool = false) throws {
         try ask("parse-lines", [
-            "lines": lines, "selectedRegion": (region as? NSNumber) ?? 0,
+            "text": text, "selectedRegion": (region as? NSNumber) ?? 0,
             "raidsToUpload": raids.map { ["start": $0.0, "end": $0.1] }, "scanning": scanning,
             "logFilePosition": ["filePath": file, "startingPosition": span.0, "currentPosition": span.1],
         ])
@@ -114,6 +114,10 @@ final class Engine {
         let error = try eval("__masterError()").toString() ?? ""
         if !error.isEmpty { throw SiteError(message: error) }
         return (try eval("__masterText()").toString() ?? "", try eval("__players()").toString() ?? "")
+    }
+
+    func collect() {
+        JSGarbageCollect(context.jsGlobalContextRef)
     }
 
     func clear() throws {

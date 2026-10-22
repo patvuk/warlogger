@@ -116,14 +116,7 @@ impl Engine {
         self.ask("set-live-logging-start-time", |m| m.set("startTime", ms as f64))
     }
 
-    pub fn parse(
-        &self,
-        lines: Vec<String>,
-        region: &Value,
-        file: &str,
-        span: (u64, u64),
-        scan: Scan,
-    ) -> Result<(), String> {
+    pub fn parse(&self, text: String, region: &Value, file: &str, span: (u64, u64), scan: Scan) -> Result<(), String> {
         let region = region.as_i64().unwrap_or(0) as f64;
         self.ask("parse-lines", |m| {
             let raids = rquickjs::Array::new(m.ctx().clone())?;
@@ -139,7 +132,7 @@ impl Engine {
             position.set("startingPosition", span.0 as f64)?;
             position.set("currentPosition", span.1 as f64)?;
 
-            m.set("lines", lines)?;
+            m.set("text", text)?;
             m.set("selectedRegion", region)?;
             m.set("raidsToUpload", raids)?;
             m.set("scanning", scan.scanning)?;

@@ -107,7 +107,7 @@ pub struct Session {
 }
 
 struct Part {
-    lines: Vec<String>,
+    text: String,
     span: (u64, u64),
     eof: bool,
 }
@@ -151,18 +151,13 @@ impl Reader {
         buf.truncate(cut);
         self.pos = start + cut as u64;
 
-        let lines = buf
-            .split(|&b| b == b'\n')
-            .map(|l| l.strip_suffix(b"\r").unwrap_or(l))
-            .filter(|l| !l.is_empty())
-            .map(|l| match self.latin1 {
-                true => l.iter().map(|&b| b as char).collect(),
-                false => String::from_utf8_lossy(l).into_owned(),
-            })
-            .collect();
+        let text = match self.latin1 {
+            true => buf.iter().map(|&b| b as char).collect(),
+            false => String::from_utf8(buf).unwrap_or_else(|e| String::from_utf8_lossy(e.as_bytes()).into_owned()),
+        };
 
         Ok(Part {
-            lines,
+            text,
             span: (start, self.pos),
             eof: self.pos >= self.len(),
         })
@@ -226,13 +221,13 @@ impl Session {
         push: bool,
         raids: &[(i64, i64)],
     ) -> Result<bool, String> {
-        if part.lines.is_empty() && !push {
+        if part.text.is_empty() && !push {
             return Ok(false);
         }
 
-        if !part.lines.is_empty() {
+        if !part.text.is_empty() {
             let scan = Scan { raids, scanning: false };
-            self.engine.parse(part.lines, region, file, part.span, scan)?;
+            self.engine.parse(part.text, region, file, part.span, scan)?;
         }
 
         let fights = self.engine.fights(push)?;
@@ -392,7 +387,7 @@ impl Session {
 
         while !cancel.load(Ordering::Relaxed) {
             let part = reader.next(true)?;
-            self.engine.parse(part.lines, region, &file, part.span, scan)?;
+            self.engine.parse(part.text, region, &file, part.span, scan)?;
             notify(Event::Progress(reader.pos as f32 / size as f32));
             if part.eof {
                 break;
@@ -485,7 +480,7 @@ impl Session {
             };
 
             let part = reader.next(stop)?;
-            let fresh = !part.lines.is_empty();
+            let fresh = !part.text.is_empty();
             let idle = std::fs::metadata(&*path)
                 .and_then(|m| m.modified())
                 .map_or(true, |m| SystemTime::now().duration_since(m).unwrap_or_default() > IDLE);

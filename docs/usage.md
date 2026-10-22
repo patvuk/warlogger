@@ -107,7 +107,7 @@ Warlogger uses the same `/desktop-client` endpoints as the official uploader.
 
 1. Warlogger signs in with your email and password.
 2. It downloads the parser of the site from `/desktop-client/parser`. It runs the parser in an embedded JavaScript engine: QuickJS on Windows and Linux, JavaScriptCore on macOS. `host/host.js` supplies the browser objects that the parser needs. Thus the parser is always current, and Warlogger does not need its own log format code.
-3. It reads the log in parts of 4 MB and sends the lines to the parser. To skip or select fights, it first runs the parser in scan mode to get the list of fights. Then it sends the time ranges of the selected fights to the parser during the upload.
+3. It reads the log in parts of 4 MB. It sends each part to the parser as one text, and the JavaScript engine divides it into lines. To skip or select fights, it first runs the parser in scan mode to get the list of fights. Then it sends the time ranges of the selected fights to the parser during the upload.
 4. For each group of completed fights, it compresses the master table and the events. It uploads them as a report segment. Then it releases the memory.
 5. At the end, it closes the report.
 
@@ -120,7 +120,7 @@ Related projects: [combatlog](https://github.com/thevinter/combatlog), [ACTLogsU
 ```sh
 cargo build --release
 cargo build --release --features omarchy
-macos/bundle.sh 0.4.1
+macos/bundle.sh 0.4.2
 ```
 
 ## Disclaimer
