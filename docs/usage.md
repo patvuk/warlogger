@@ -124,7 +124,7 @@ Related projects: [combatlog](https://github.com/thevinter/combatlog), [ACTLogsU
 ```sh
 cargo build --release
 cargo build --release --features omarchy
-macos/bundle.sh 0.5.1
+macos/bundle.sh 0.5.2
 ```
 
 ## Disclaimer

@@ -53,7 +53,7 @@ final class Site {
     func prepare() async {
         var request = URLRequest(url: URL(string: "https://api.github.com/repos/RPGLogs/Uploaders-archon/releases/latest")!)
         request.setValue("warlogger", forHTTPHeaderField: "User-Agent")
-        guard let (data, _) = try? await URLSession.shared.data(for: request),
+        guard let (data, _) = try? await session.data(for: request),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let tag = json["tag_name"] as? String, !tag.isEmpty else { return }
         version = tag.hasPrefix("v") ? String(tag.dropFirst()) : tag

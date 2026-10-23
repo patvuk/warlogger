@@ -67,6 +67,7 @@ final class Model: ObservableObject {
         skipShort = saved.bool(forKey: "skip.short")
         merge = saved.bool(forKey: "merge")
         gameId = saved.string(forKey: "game") ?? "wow"
+        Updater.cleanup()
         Task { update = await Updater.check() }
         guild = defaults.string(forKey: "guild") ?? ""
         region = defaults.string(forKey: "region") ?? ""

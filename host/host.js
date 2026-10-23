@@ -58,12 +58,15 @@ window.console = window.console || { log: function () {}, warn: function () {}, 
 
 (function () {
   var Native = Date;
-  var stamp = /^(\d{1,2})\/(\d{1,2})\/(\d{4}) (\d{1,2}):(\d{2}):(\d{2})(?:\.(\d{1,3}))?([+-])(\d{1,2})(?::?(\d{2}))?$/;
+  var stamp = /^(\d{1,2})\/(\d{1,2})\/(\d{4}) (\d{1,2}):(\d{2}):(\d{2})(?:\.(\d{1,3}))?((?:[+-]\d{1,4}(?::\d{2})?)+)$/;
 
   function parse(text) {
     var m = typeof text === "string" && stamp.exec(text);
     if (!m) return null;
-    var zone = (+m[9] * 60 + +(m[10] || 0)) * (m[8] === "-" ? -1 : 1);
+    var last = /([+-])(\d{1,4})(?::(\d{2}))?$/.exec(m[8]);
+    var hours = last[2].length > 2 ? last[2].slice(0, -2) : last[2];
+    var minutes = last[3] || (last[2].length > 2 ? last[2].slice(-2) : "0");
+    var zone = (+hours * 60 + +minutes) * (last[1] === "-" ? -1 : 1);
     return Native.UTC(+m[3], m[1] - 1, +m[2], +m[4], +m[5], +m[6], +((m[7] || "0") + "00").slice(0, 3)) - zone * 60000;
   }
 

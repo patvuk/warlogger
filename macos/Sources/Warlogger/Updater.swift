@@ -8,6 +8,15 @@ struct Update {
 
 enum Updater {
     private static let latest = URL(string: "https://api.github.com/repos/patvuk/warlogger/releases/latest")!
+    private static let session = URLSession(configuration: .ephemeral)
+    private static var temp: URL { FileManager.default.temporaryDirectory }
+
+    static func cleanup() {
+        let items = (try? FileManager.default.contentsOfDirectory(at: temp, includingPropertiesForKeys: nil)) ?? []
+        for item in items where item.lastPathComponent.hasPrefix("warlogger-") {
+            try? FileManager.default.removeItem(at: item)
+        }
+    }
 
     static var current: String { Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0" }
 
@@ -18,7 +27,7 @@ enum Updater {
     static func check() async -> Update? {
         var request = URLRequest(url: latest)
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
-        guard let (data, response) = try? await URLSession.shared.data(for: request),
+        guard let (data, response) = try? await session.data(for: request),
               (response as? HTTPURLResponse)?.statusCode == 200,
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let version = (json["tag_name"] as? String).map({ String($0.drop { $0 == "v" }) }),
@@ -36,12 +45,13 @@ enum Updater {
     }
 
     static func install(_ update: Update) async throws {
-        let (file, _) = try await URLSession.shared.download(from: update.url)
+        let (file, _) = try await session.download(from: update.url)
+        defer { try? FileManager.default.removeItem(at: file) }
         let size = (try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
         guard size == update.size else { throw SiteError(message: "Download is \(size) bytes, expected \(update.size)") }
 
         let fm = FileManager.default
-        let dir = fm.temporaryDirectory.appendingPathComponent("warlogger-\(update.version)")
+        let dir = temp.appendingPathComponent("warlogger-\(update.version)")
         try? fm.removeItem(at: dir)
         try fm.createDirectory(at: dir, withIntermediateDirectories: true)
         try run("/usr/bin/ditto", ["-x", "-k", file.path, dir.path])
