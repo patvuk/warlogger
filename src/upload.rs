@@ -61,7 +61,11 @@ impl Fight {
         game.id == "wow" && self.difficulty == 8 && self.boss > 0
     }
 
-    pub fn label(&self, game: &Game) -> String {
+    pub fn dungeon(&self) -> bool {
+        self.boss > 0 && matches!(self.difficulty, 8 | 10)
+    }
+
+    pub fn columns(&self, game: &Game) -> [String; 4] {
         let result = match (self.boss, self.key(game), self.success) {
             (0, ..) => "trash",
             (_, true, true) => "timed",
@@ -69,22 +73,26 @@ impl Fight {
             (_, false, true) => "kill",
             _ => "wipe",
         };
+        let pulls = match self.pulls {
+            0 | 1 => String::new(),
+            n => format!(" x{n}"),
+        };
         let secs = (self.end - self.start).max(0) / 1000;
-        let pulls = if self.pulls > 1 {
-            format!(" x{}", self.pulls)
-        } else {
-            String::new()
+        [
+            self.name.clone(),
+            game.difficulty(self.difficulty).to_owned(),
+            format!("{result}{pulls}"),
+            format!("{}:{:02}", secs / 60, secs % 60),
+        ]
+    }
+
+    pub fn label(&self, game: &Game) -> String {
+        let [name, difficulty, result, time] = self.columns(game);
+        let title = match difficulty.is_empty() {
+            true => name,
+            false => format!("{name} {difficulty}"),
         };
-        let difficulty = match game.difficulty(self.difficulty) {
-            "" => String::new(),
-            d => format!(" {d}"),
-        };
-        format!(
-            "{}{difficulty}  {result}{pulls}  {}:{:02}",
-            self.name,
-            secs / 60,
-            secs % 60
-        )
+        format!("{title}  {result}  {time}")
     }
 }
 

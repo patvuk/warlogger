@@ -26,12 +26,17 @@ struct Fight: Hashable {
 
     func key(_ game: Game) -> Bool { game.id == "wow" && difficulty == 8 && boss > 0 }
 
-    func label(_ game: Game) -> String {
+    var dungeon: Bool { boss > 0 && (difficulty == 8 || difficulty == 10) }
+
+    func columns(_ game: Game) -> [String] {
         let result = boss == 0 ? "trash" : key(game) ? (success ? "timed" : "failed") : (success ? "kill" : "wipe")
         let secs = max(end - start, 0) / 1000
-        let difficulty = game.difficulty(self.difficulty)
-        let title = difficulty.isEmpty ? name : "\(name) \(difficulty)"
-        return [title, result + (pulls > 1 ? " x\(pulls)" : ""), String(format: "%d:%02d", secs / 60, secs % 60)].joined(separator: "  ")
+        return [name, game.difficulty(difficulty), result + (pulls > 1 ? " x\(pulls)" : ""), String(format: "%d:%02d", secs / 60, secs % 60)]
+    }
+
+    func label(_ game: Game) -> String {
+        let c = columns(game)
+        return [c[1].isEmpty ? c[0] : "\(c[0]) \(c[1])", c[2], c[3]].joined(separator: "  ")
     }
 }
 

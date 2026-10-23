@@ -306,6 +306,12 @@ final class Model: ObservableObject {
     }
 }
 
+struct FightRow: Identifiable {
+    let id: Int
+    let fight: Fight
+    let cells: [String]
+}
+
 struct Panel: View {
     @EnvironmentObject var model: Model
 
@@ -352,19 +358,22 @@ struct Panel: View {
             }
 
             if let fights = model.fights {
-                List(Array(fights.indices), id: \.self, selection: $model.picked) { i in
-                    Text(fights[i].label(model.game)).font(.callout).lineLimit(1)
+                let rows = fights.indices.map { FightRow(id: $0, fight: fights[$0], cells: fights[$0].columns(model.game)) }
+                Table(rows, selection: $model.picked) {
+                    TableColumn("Fight") { cell($0, 0) }.width(min: 120, ideal: 230)
+                    TableColumn("Difficulty") { cell($0, 1) }.width(min: 60, ideal: 80)
+                    TableColumn("Result") { cell($0, 2) }.width(min: 50, ideal: 80)
+                    TableColumn("Duration") { cell($0, 3) }.width(min: 50, ideal: 60)
                 }
                 .frame(height: 220)
             } else {
-                List(model.logs, selection: $model.selected) { log in
-                    HStack {
-                        Text(log.url.lastPathComponent).lineLimit(1).truncationMode(.middle)
-                        Spacer()
-                        Text(ByteCountFormatter.string(fromByteCount: log.size, countStyle: .file)).foregroundStyle(.secondary)
-                        Text(log.modified, style: .relative).foregroundStyle(.secondary).frame(width: 90, alignment: .trailing)
-                    }
-                    .font(.callout)
+                Table(model.logs, selection: $model.selected) {
+                    TableColumn("Log") { Text($0.url.lastPathComponent).lineLimit(1).truncationMode(.middle) }
+                        .width(min: 120, ideal: 260)
+                    TableColumn("Size") { Text(ByteCountFormatter.string(fromByteCount: $0.size, countStyle: .file)) }
+                        .width(min: 50, ideal: 70)
+                    TableColumn("Modified") { Text($0.modified, style: .relative) }
+                        .width(min: 60, ideal: 110)
                 }
                 .frame(height: 220)
             }
@@ -406,6 +415,10 @@ struct Panel: View {
         }
         .padding(16)
         .frame(width: 520)
+    }
+
+    private func cell(_ row: FightRow, _ column: Int) -> some View {
+        Text(row.cells[column]).fontWeight(row.fight.dungeon ? .bold : .regular).lineLimit(1)
     }
 
     private func choice(_ title: String, _ list: [Choice], _ binding: Binding<String>) -> some View {

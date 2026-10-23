@@ -20,7 +20,7 @@ mod zip;
 use game::{GAMES, Game};
 use serde_json::Value;
 use site::{Account, Choice};
-use std::io::Write;
+use std::io::{IsTerminal, Write};
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::sync::atomic::AtomicBool;
@@ -401,7 +401,11 @@ fn fights(cfg: Config, args: Args) -> Result<(), String> {
 
         for (i, fight) in fights.iter().enumerate() {
             let mark = if args.filter.keep(game, fight) { ' ' } else { '-' };
-            println!("{:>3}{mark} {}", i + 1, fight.label(game));
+            let (on, off) = match fight.dungeon() && std::io::stdout().is_terminal() {
+                true => ("\x1b[1m", "\x1b[0m"),
+                false => ("", ""),
+            };
+            println!("{:>3}{mark} {on}{}{off}", i + 1, fight.label(game));
         }
         Ok(())
     })

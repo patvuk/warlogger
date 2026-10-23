@@ -10,12 +10,18 @@ use std::ptr::{null, null_mut};
 use std::sync::atomic::Ordering;
 use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM};
 use windows_sys::Win32::Graphics::Gdi::{
-    COLOR_WINDOW, CreateFontIndirectW, DeleteObject, GetSysColorBrush, HBRUSH, HDC, HFONT, SetBkMode, TRANSPARENT,
+    COLOR_WINDOW, CreateFontIndirectW, DeleteObject, FW_BOLD, GetSysColorBrush, HBRUSH, HDC, HFONT, SelectObject,
+    SetBkMode, TRANSPARENT,
 };
 use windows_sys::Win32::System::Com::CoTaskMemFree;
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::UI::Controls::{
-    EM_SETCUEBANNER, ICC_PROGRESS_CLASS, ICC_STANDARD_CLASSES, INITCOMMONCONTROLSEX, InitCommonControlsEx, PBM_SETPOS,
+    CDDS_ITEMPREPAINT, CDDS_PREPAINT, CDRF_DODEFAULT, CDRF_NEWFONT, CDRF_NOTIFYITEMDRAW, EM_SETCUEBANNER,
+    ICC_LISTVIEW_CLASSES, ICC_PROGRESS_CLASS, ICC_STANDARD_CLASSES, INITCOMMONCONTROLSEX, InitCommonControlsEx,
+    LVCF_TEXT, LVCF_WIDTH, LVCOLUMNW, LVIF_TEXT, LVIS_SELECTED, LVITEMW, LVM_DELETEALLITEMS, LVM_DELETECOLUMN,
+    LVM_GETITEMCOUNT, LVM_GETNEXTITEM, LVM_INSERTCOLUMNW, LVM_INSERTITEMW, LVM_SETCOLUMNWIDTH,
+    LVM_SETEXTENDEDLISTVIEWSTYLE, LVM_SETITEMSTATE, LVM_SETITEMTEXTW, LVNI_SELECTED, LVS_EX_DOUBLEBUFFER,
+    LVS_EX_FULLROWSELECT, LVS_REPORT, LVS_SHOWSELALWAYS, NM_CUSTOMDRAW, NM_DBLCLK, NMHDR, NMLVCUSTOMDRAW, PBM_SETPOS,
     PBM_SETRANGE32, PROGRESS_CLASSW,
 };
 use windows_sys::Win32::UI::HiDpi::{
@@ -60,6 +66,9 @@ const CHECKS: [(i32, &str); 5] = [
     (SKIP_SHORT, "skip.short"),
     (MERGE, "merge"),
 ];
+
+const LOG_COLUMNS: &[(&str, i32)] = &[("Log", 300), ("Size", 90), ("Modified", 110)];
+const FIGHT_COLUMNS: &[(&str, i32)] = &[("Fight", 250), ("Difficulty", 90), ("Result", 90), ("Duration", 70)];
 
 const WIDTH: i32 = 560;
 const HEIGHT: i32 = 560;
@@ -117,9 +126,9 @@ const LAYOUT: &[(i32, &str, &str, u32, [i32; 4])] = &[
     (BROWSE, "BUTTON", "Browse…", BS_PUSHBUTTON as u32, [446, 115, 98, 26]),
     (
         LOGS,
-        "LISTBOX",
+        "SysListView32",
         "",
-        LBS_EXTENDEDSEL as u32 | LBS_NOTIFY as u32 | LBS_NOINTEGRALHEIGHT as u32 | WS_VSCROLL | WS_BORDER,
+        LVS_REPORT | LVS_SHOWSELALWAYS | WS_BORDER,
         [16, 152, 528, 250],
     ),
     (
@@ -200,6 +209,8 @@ enum Job {
 struct App {
     hwnd: HWND,
     font: HFONT,
+    bold: HFONT,
+    columns: &'static [(&'static str, i32)],
     cfg: Config,
     account: Option<Account>,
     logs: Vec<PathBuf>,
@@ -288,10 +299,99 @@ impl App {
 
     fn picked(&self) -> Vec<usize> {
         let list = item(self.hwnd, LOGS);
-        let count = send(list, LB_GETSELCOUNT, 0, 0).max(0) as usize;
-        let mut picked = vec![0i32; count];
-        send(list, LB_GETSELITEMS, count, picked.as_mut_ptr() as isize);
-        picked.into_iter().map(|i| i as usize).collect()
+        let mut picked = Vec::new();
+        let mut at = usize::MAX;
+        while let Ok(next) = usize::try_from(send(list, LVM_GETNEXTITEM, at, LVNI_SELECTED as isize)) {
+            picked.push(next);
+            at = next;
+        }
+        picked
+    }
+
+    fn widths(&self) {
+        let dpi = unsafe { GetDpiForWindow(self.hwnd) } as i32;
+        for (i, &(_, width)) in self.columns.iter().enumerate() {
+            send(
+                item(self.hwnd, LOGS),
+                LVM_SETCOLUMNWIDTH,
+                i,
+                (width * dpi / 96) as isize,
+            );
+        }
+    }
+
+    fn table(&mut self, columns: &'static [(&'static str, i32)]) {
+        let list = item(self.hwnd, LOGS);
+        send(list, LVM_DELETEALLITEMS, 0, 0);
+        while send(list, LVM_DELETECOLUMN, 0, 0) != 0 {}
+
+        for (i, &(title, _)) in columns.iter().enumerate() {
+            let text = wide(title);
+            let mut column: LVCOLUMNW = unsafe { std::mem::zeroed() };
+            column.mask = LVCF_TEXT | LVCF_WIDTH;
+            column.pszText = text.as_ptr() as *mut u16;
+            send(list, LVM_INSERTCOLUMNW, i, (&raw const column) as isize);
+        }
+        self.columns = columns;
+        self.widths();
+    }
+
+    fn row(&self, cells: &[String]) {
+        let list = item(self.hwnd, LOGS);
+        let index = send(list, LVM_GETITEMCOUNT, 0, 0) as usize;
+        for (sub, text) in cells.iter().enumerate() {
+            let text = wide(text);
+            let mut row: LVITEMW = unsafe { std::mem::zeroed() };
+            row.mask = LVIF_TEXT;
+            row.iItem = index as i32;
+            row.iSubItem = sub as i32;
+            row.pszText = text.as_ptr() as *mut u16;
+            let msg = if sub == 0 { LVM_INSERTITEMW } else { LVM_SETITEMTEXTW };
+            send(list, msg, index, (&raw const row) as isize);
+        }
+    }
+
+    fn select(&self, index: usize, on: bool) {
+        let mut row: LVITEMW = unsafe { std::mem::zeroed() };
+        row.stateMask = LVIS_SELECTED;
+        row.state = if on { LVIS_SELECTED } else { 0 };
+        send(
+            item(self.hwnd, LOGS),
+            LVM_SETITEMSTATE,
+            index,
+            (&raw const row) as isize,
+        );
+    }
+
+    fn notify(&mut self, l: LPARAM) -> Option<LRESULT> {
+        let header = unsafe { &*(l as *const NMHDR) };
+        if header.idFrom != LOGS as usize {
+            return None;
+        }
+        match header.code {
+            NM_DBLCLK => {
+                self.start(false);
+                None
+            }
+            NM_CUSTOMDRAW => {
+                let draw = unsafe { &*(l as *const NMLVCUSTOMDRAW) };
+                let dungeon = || {
+                    let fights = self.fights.as_ref().map(|(_, f)| f);
+                    fights
+                        .and_then(|f| f.get(draw.nmcd.dwItemSpec))
+                        .is_some_and(Fight::dungeon)
+                };
+                Some(match draw.nmcd.dwDrawStage {
+                    CDDS_PREPAINT => CDRF_NOTIFYITEMDRAW as LRESULT,
+                    CDDS_ITEMPREPAINT if dungeon() => {
+                        unsafe { SelectObject(draw.nmcd.hdc, self.bold) };
+                        CDRF_NEWFONT as LRESULT
+                    }
+                    _ => CDRF_DODEFAULT as LRESULT,
+                })
+            }
+            _ => None,
+        }
     }
 
     fn status(&self, text: &str) {
@@ -319,10 +419,15 @@ impl App {
                 dpi as u32,
             );
             let font = CreateFontIndirectW(&metrics.lfMessageFont);
-            if !self.font.is_null() {
-                DeleteObject(self.font);
+            metrics.lfMessageFont.lfWeight = FW_BOLD as i32;
+            let bold = CreateFontIndirectW(&metrics.lfMessageFont);
+            for old in [self.font, self.bold] {
+                if !old.is_null() {
+                    DeleteObject(old);
+                }
             }
             self.font = font;
+            self.bold = bold;
 
             let mut rect = RECT {
                 left: 0,
@@ -349,6 +454,7 @@ impl App {
                 child = GetWindow(child, GW_HWNDNEXT);
             }
         }
+        self.widths();
     }
 
     fn create(&mut self) {
@@ -386,6 +492,12 @@ impl App {
             wide("Email").as_ptr() as isize,
         );
         send(item(self.hwnd, PROGRESS), PBM_SETRANGE32, 0, 1000);
+        send(
+            item(self.hwnd, LOGS),
+            LVM_SETEXTENDEDLISTVIEWSTYLE,
+            0,
+            (LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER) as isize,
+        );
         for (id, key) in CHECKS {
             let on = self.cfg.get(key) == Some("1");
             send(item(self.hwnd, id), BM_SETCHECK, on as usize, 0);
@@ -483,8 +595,7 @@ impl App {
     }
 
     fn refresh(&mut self) {
-        let list = item(self.hwnd, LOGS);
-        send(list, LB_RESETCONTENT, 0, 0);
+        self.table(LOG_COLUMNS);
         self.logs.clear();
         self.fights = None;
         set_text(item(self.hwnd, FIGHTS), "Fights");
@@ -501,12 +612,11 @@ impl App {
         set_text(item(self.hwnd, FOLDER), &dir.display().to_string());
         for log in self.game().logs(&dir) {
             let name = log.path.file_name().unwrap_or_default().to_string_lossy().into_owned();
-            let row = format!("{name}    {:.1} MB    {}", log.size as f64 / 1e6, ago(&log));
-            send(list, LB_ADDSTRING, 0, wide(&row).as_ptr() as isize);
+            self.row(&[name, format!("{:.1} MB", log.size as f64 / 1e6), ago(&log)]);
             self.logs.push(log.path);
         }
         if !self.logs.is_empty() {
-            send(list, LB_SETSEL, 1, 0);
+            self.select(0, true);
         }
     }
 
@@ -514,20 +624,14 @@ impl App {
         let Some((_, fights)) = &self.fights else { return };
         let filter = self.filter();
         for (i, fight) in fights.iter().enumerate() {
-            send(
-                item(self.hwnd, LOGS),
-                LB_SETSEL,
-                filter.keep(self.game(), fight) as usize,
-                i as isize,
-            );
+            self.select(i, filter.keep(self.game(), fight));
         }
     }
 
     fn show_fights(&mut self, path: PathBuf, fights: Vec<Fight>) {
-        let list = item(self.hwnd, LOGS);
-        send(list, LB_RESETCONTENT, 0, 0);
+        self.table(FIGHT_COLUMNS);
         for fight in &fights {
-            send(list, LB_ADDSTRING, 0, wide(&fight.label(self.game())).as_ptr() as isize);
+            self.row(&fight.columns(self.game()));
         }
 
         let name = path.file_name().unwrap_or_default().to_string_lossy().into_owned();
@@ -866,7 +970,6 @@ impl App {
             (SPLIT, BN_CLICKED) => self.split(),
             (SKIP_TRASH | SKIP_WIPES | SKIP_FAILED | SKIP_SHORT | MERGE, BN_CLICKED) => self.check(id),
             (UPLOAD, BN_CLICKED) => self.start(false),
-            (LOGS, LBN_DBLCLK) => self.start(false),
             (LIVE, BN_CLICKED) if self.job == Job::Live => {
                 CANCEL.store(true, Ordering::Relaxed);
                 self.status("Stopping; uploading the last fight…");
@@ -906,6 +1009,11 @@ unsafe extern "system" fn proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) -> LR
         WM_CREATE => app.create(),
         WM_COMMAND => app.command((w & 0xFFFF) as i32, ((w >> 16) & 0xFFFF) as u32),
         WM_APP => app.message(*unsafe { Box::from_raw(l as *mut Msg) }),
+        WM_NOTIFY => {
+            return app
+                .notify(l)
+                .unwrap_or_else(|| unsafe { DefWindowProcW(hwnd, msg, w, l) });
+        }
         WM_DPICHANGED => app.layout(),
         WM_CTLCOLORSTATIC => unsafe {
             SetBkMode(w as HDC, TRANSPARENT as i32);
@@ -931,7 +1039,7 @@ pub fn run() -> ExitCode {
         SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
         let controls = INITCOMMONCONTROLSEX {
             dwSize: size_of::<INITCOMMONCONTROLSEX>() as u32,
-            dwICC: ICC_PROGRESS_CLASS | ICC_STANDARD_CLASSES,
+            dwICC: ICC_PROGRESS_CLASS | ICC_STANDARD_CLASSES | ICC_LISTVIEW_CLASSES,
         };
         InitCommonControlsEx(&controls);
 
@@ -951,6 +1059,8 @@ pub fn run() -> ExitCode {
         let app = Box::into_raw(Box::new(App {
             hwnd: null_mut(),
             font: null_mut(),
+            bold: null_mut(),
+            columns: LOG_COLUMNS,
             cfg: Config::load(),
             account: None,
             logs: Vec::new(),

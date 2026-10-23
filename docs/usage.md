@@ -2,7 +2,7 @@
 
 ## Apps
 
-The Windows app and the macOS app work the same way.
+The Windows app and the macOS app work the same way. To change the width of a column in the list, drag the edge of its header.
 
 1. Select the game.
 2. Sign in.
@@ -19,7 +19,7 @@ The Windows app and the macOS app work the same way.
 | **Skip wipes** | Does not upload boss wipes. |
 | **Skip failed keys** | Does not upload Mythic+ keys that are not timed or that are abandoned. |
 | **Skip short** | Does not upload fights of less than 10 seconds. |
-| **Fights** | Shows the fights in the selected log. Skipped fights are not selected. Select the fights, then click **Upload selected**. Click **Logs** to go back to the list of logs. |
+| **Fights** | Shows the fights in the selected log. Complete dungeons show in bold. Skipped fights are not selected. Select the fights, then click **Upload selected**. Click **Logs** to go back to the list of logs. |
 | **Split** | Divides each selected log into smaller logs in the same directory. When **Skip short** is on, Split deletes parts of less than 10 seconds. Split does not change the original log. |
 
 Split uses the same rules as the official uploader:
@@ -124,7 +124,7 @@ Related projects: [combatlog](https://github.com/thevinter/combatlog), [ACTLogsU
 ```sh
 cargo build --release
 cargo build --release --features omarchy
-macos/bundle.sh 0.5.0
+macos/bundle.sh 0.5.1
 ```
 
 ## Disclaimer
