@@ -885,7 +885,9 @@ impl Scanner {
     }
 
     fn finish(mut self) -> Vec<Fight> {
-        self.push();
+        if self.in_combat {
+            self.push();
+        }
         let scanned = std::mem::take(&mut self.scanned);
         scanned
             .into_iter()

@@ -163,8 +163,9 @@ impl Engine {
     }
 
     pub fn scanned(&self) -> Result<String, String> {
+        let pending: bool = self.eval("__pending()")?;
         self.ask("collect-fights", |m| {
-            m.set("pushFightIfNeeded", true)?;
+            m.set("pushFightIfNeeded", pending)?;
             m.set("scanningOnly", true)
         })?;
         self.ask("collect-scanned-raids", |_| Ok(()))?;

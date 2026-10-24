@@ -188,6 +188,10 @@ function __players() {
   return String(__last["collect-master-info-completed"].playersString);
 }
 
+function __pending() {
+  return typeof inCombat === "undefined" || !!inCombat;
+}
+
 function __scanned() {
   return JSON.stringify(Array.prototype.slice.call(__last["collect-scanned-raids-completed"]));
 }

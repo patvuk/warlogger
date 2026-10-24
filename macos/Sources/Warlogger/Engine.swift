@@ -96,7 +96,8 @@ final class Engine {
     }
 
     func scanned() throws -> [Fight] {
-        try ask("collect-fights", ["pushFightIfNeeded": true, "scanningOnly": true])
+        let pending = try eval("__pending()").toBool()
+        try ask("collect-fights", ["pushFightIfNeeded": pending, "scanningOnly": true])
         try ask("collect-scanned-raids")
         let s = try eval("__scanned()").toString() ?? "[]"
         let list = (try? JSONSerialization.jsonObject(with: Data(s.utf8)) as? [[String: Any]]) ?? []
