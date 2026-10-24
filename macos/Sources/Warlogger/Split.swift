@@ -14,7 +14,7 @@ private struct Line {
 private struct State {
     var time: Int64 = 0
     var zone: Int64 = 0
-    var key = false
+    var key: String?
     var last: [String]?
 }
 
@@ -92,15 +92,15 @@ private func splitHere(_ game: Game, _ line: Line, _ state: inout State) -> Bool
         let key = [event.label, event.difficulty]
         switch event.kind {
         case "CHALLENGE_MODE_END":
-            state.key = false
+            state.key = nil
             return false
         case "CHALLENGE_MODE_START":
-            state.key = true
-            return true
+            defer { state.key = event.label }
+            return state.key != event.label
         default:
-            if state.key {
+            if state.key != nil {
                 let left = event.difficulty != game.difficulty(8)
-                if left { state.key = false; state.last = key }
+                if left { state.key = nil; state.last = key }
                 return left
             }
             let changed = state.last != key

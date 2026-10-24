@@ -67,6 +67,7 @@ private final class Reader {
     private let latin1: Bool
     private(set) var pos: Int64 = 0
     private let chunk = 4 << 20
+    private var key: String?
 
     init(_ url: URL, latin1: Bool) throws {
         handle = try FileHandle(forReadingFrom: url)
@@ -92,7 +93,27 @@ private final class Reader {
         pos = start + Int64(cut)
 
         let text = latin1 ? String(data: data, encoding: .isoLatin1) ?? "" : String(decoding: data, as: UTF8.self)
-        return Part(text: text, span: (start, pos), eof: pos >= length)
+        return Part(text: reloads(text), span: (start, pos), eof: pos >= length)
+    }
+
+    private func reloads(_ text: String) -> String {
+        guard text.contains("CHALLENGE_MODE_") else { return text }
+
+        var kept: [Substring] = []
+        for line in text.split(separator: "\n", omittingEmptySubsequences: false) {
+            let event = line.range(of: "  ").map { line[$0.upperBound...] } ?? ""
+            if event.hasPrefix("CHALLENGE_MODE_START,") {
+                let rest = event.dropFirst(21)
+                let tail = rest.lastIndex(of: "\"").map { rest[rest.index(after: $0)...].drop { $0 == "," } } ?? rest
+                let map = String(tail.prefix { $0 != "," })
+                if key == map { continue }
+                key = map
+            } else if event.hasPrefix("CHALLENGE_MODE_END,") {
+                key = nil
+            }
+            kept.append(line)
+        }
+        return kept.joined(separator: "\n")
     }
 }
 

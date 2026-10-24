@@ -412,6 +412,7 @@ struct Scanner {
     in_dungeon: bool,
     in_tower: bool,
     map: Option<i64>,
+    key: Option<i64>,
     stack: i64,
     threshold: i64,
     start_combat: i64,
@@ -595,6 +596,18 @@ impl Scanner {
         let Some(kind) = kind(f.get(0), &f, self.zone_timeout > 0) else {
             return Ok(());
         };
+
+        match kind {
+            Kind::KeyStart => {
+                let id = f.int(1).or(f.int(2));
+                if id.is_some() && self.key == id {
+                    return Ok(());
+                }
+                self.key = id;
+            }
+            Kind::KeyEnd => self.key = None,
+            _ => {}
+        }
 
         let Some((u, year)) = self.time(&line[..space], clock, millis) else {
             return Ok(());

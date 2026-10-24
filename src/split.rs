@@ -22,7 +22,7 @@ struct Line {
 struct State {
     time: i64,
     zone: i64,
-    key: bool,
+    key: Option<String>,
     last: Option<(String, String)>,
 }
 
@@ -126,17 +126,14 @@ fn split_here(game: &Game, line: &Line, state: &mut State) -> bool {
         let key = || (label.clone(), difficulty.clone());
         match kind.as_str() {
             "CHALLENGE_MODE_END" => {
-                state.key = false;
+                state.key = None;
                 return false;
             }
-            "CHALLENGE_MODE_START" => {
-                state.key = true;
-                return true;
-            }
-            _ if state.key => {
+            "CHALLENGE_MODE_START" => return state.key.replace(label.clone()).as_ref() != Some(label),
+            _ if state.key.is_some() => {
                 let left = difficulty != game.difficulty(8);
                 if left {
-                    state.key = false;
+                    state.key = None;
                     state.last = Some(key());
                 }
                 return left;

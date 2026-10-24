@@ -138,12 +138,18 @@ struct Reader {
     file: File,
     pos: u64,
     latin1: bool,
+    key: Option<String>,
 }
 
 impl Reader {
     fn open(path: &Path, latin1: bool) -> Result<Self, String> {
         let file = File::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
-        Ok(Self { file, pos: 0, latin1 })
+        Ok(Self {
+            file,
+            pos: 0,
+            latin1,
+            key: None,
+        })
     }
 
     fn len(&self) -> u64 {
@@ -173,10 +179,33 @@ impl Reader {
         };
 
         Ok(Part {
-            text,
+            text: self.reloads(text),
             span: (start, self.pos),
             eof: self.pos >= self.len(),
         })
+    }
+
+    fn reloads(&mut self, text: String) -> String {
+        if !text.contains("CHALLENGE_MODE_") {
+            return text;
+        }
+
+        let mut kept = String::with_capacity(text.len());
+        for line in text.split_inclusive('\n') {
+            let event = line.split_once("  ").map_or("", |(_, e)| e);
+            if let Some(rest) = event.strip_prefix("CHALLENGE_MODE_START,") {
+                let map = rest.rsplit_once('"').map_or(rest, |(_, t)| t.trim_start_matches(','));
+                let map = map.split(',').next().unwrap_or_default().to_owned();
+                if self.key.as_ref() == Some(&map) {
+                    continue;
+                }
+                self.key = Some(map);
+            } else if event.starts_with("CHALLENGE_MODE_END,") {
+                self.key = None;
+            }
+            kept.push_str(line);
+        }
+        kept
     }
 }
 
