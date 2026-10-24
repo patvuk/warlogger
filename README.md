@@ -7,7 +7,7 @@
 <p align="center">
   <a href="https://github.com/patvuk/warlogger/actions/workflows/ci.yml"><img src="https://github.com/patvuk/warlogger/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
   <a href="https://github.com/patvuk/warlogger/releases/latest"><img src="https://img.shields.io/github/v/release/patvuk/warlogger" alt="Release"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/github/license/patvuk/warlogger" alt="License"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="License"></a>
 </p>
 
 ## Sites
